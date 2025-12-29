@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cantonese Lyric Generator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 0243 Lyric Generator</h1>
+            <p class="subtitle">Transform numeric patterns into Cantonese lyrics</p>
+        </header>
+
+        <div class="input-section">
+            <form id="lyricForm">
+                <div class="input-group">
+                    <label for="inputDigits">Enter digits (0, 2, 3, 4):</label>
+                    <input type="text" id="inputDigits" name="inputDigits" placeholder="e.g., 334, 00, 23" maxlength="3"
+                        pattern="[0234]+" required>
+                    <small class="hint">Enter 2-3 digits using only: 0, 2, 3, 4</small>
+                </div>
+                <button type="submit" id="generateBtn">
+                    <span class="btn-text">Generate Lyrics</span>
+                    <span class="btn-loader" style="display: none;">⏳ Processing...</span>
+                </button>
+            </form>
+        </div>
+
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div id="resultsSection" class="results-section" style="display: none;">
+            <div class="result-header">
+                <h2>Results</h2>
+                <div class="header-buttons">
+                    <button id="regenerateBtn" class="regenerate-btn">🔄 Regenerate</button>
+                    <button id="updateCacheBtn" class="copy-btn" style="display: none;">💾 Update Cache</button>
+                    <button id="selectAllBtn" class="copy-btn" style="display: none;">✓ Select All</button>
+                    <button id="deleteSelectedBtn" class="delete-btn" style="display: none;">🗑️ Delete Selected (<span
+                            id="selectedCount">0</span>)</button>
+                    <button id="downloadCacheBtn" class="copy-btn" style="display: none;">⬇️ Download Cache</button>
+                    <button id="viewJsonBtn" class="copy-btn">View JSON</button>
+                </div>
+            </div>
+            <div id="resultsContainer"></div>
+        </div>
+
+        <div id="jsonOutput" class="json-output collapsed" style="display: none;">
+            <h3>JSON Output</h3>
+            <pre id="jsonContent"></pre>
+        </div>
+    </div>
+
+    <!-- Regenerate Modal -->
+    <div id="regenerateModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔄 Regenerate Lyrics</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <label for="phraseCountInput">Number of phrases per pattern:</label>
+                    <input type="number" id="phraseCountInput" min="1" max="10" value="2" class="number-input">
+                </div>
+                <div class="modal-section">
+                    <label>Select tone patterns to regenerate:</label>
+                    <div class="patterns-checkbox-container" id="patternsCheckboxContainer">
+                        <!-- Patterns will be populated here -->
+                    </div>
+                    <div class="pattern-actions">
+                        <button id="selectAllPatternsBtn" class="small-btn">Select All</button>
+                        <button id="deselectAllPatternsBtn" class="small-btn">Deselect All</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelRegenerateBtn" class="btn-secondary">Cancel</button>
+                <button id="submitRegenerateBtn" class="btn-primary">Generate</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Debug: Check if script loads
+        console.log('✓ HTML script tag reached');
+        console.log('Document ready state:', document.readyState);
+
+        // Check if elements exist before script loads
+        window.addEventListener('DOMContentLoaded', function () {
+            console.log('✓ DOMContentLoaded fired');
+            console.log('Elements check:');
+            console.log('  lyricForm:', document.getElementById('lyricForm') ? '✓' : '✗');
+            console.log('  inputDigits:', document.getElementById('inputDigits') ? '✓' : '✗');
+            console.log('  generateBtn:', document.getElementById('generateBtn') ? '✓' : '✗');
+        });
+    </script>
+    <script src="app.js" onerror="console.error('✗ Failed to load app.js - check file path and CORS')"></script>
+    <script>
+        // Debug: Check after script loads
+        console.log('✓ Script tag after app.js reached');
+    </script>
+</body>
+
+</html>
