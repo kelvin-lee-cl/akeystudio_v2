@@ -36,6 +36,23 @@ npx http-server -p 8000
 - Install "Live Server" extension
 - Right-click `index.html` → "Open with Live Server"
 
+**Option 4: Nginx (port 8080)**
+
+If you see "Welcome to nginx" on port 8080, nginx is serving its default page. To serve this app instead:
+
+1. Use the project’s `nginx.conf` (it points `root` at this folder and listens on 8080).
+2. Either run nginx with this config:
+   ```bash
+   nginx -c "$(pwd)/nginx.conf"
+   ```
+   or copy the `server { ... }` block from `nginx.conf` into your main nginx config (e.g. `/etc/nginx/sites-available/default` or `/usr/local/etc/nginx/nginx.conf`), then reload:
+   ```bash
+   sudo nginx -s reload
+   ```
+3. If another server is already using 8080, change the port in `nginx.conf` or stop that server first.
+
+Then open: http://localhost:8080
+
 ### Testing
 
 1. First, open `test.html` in your browser (after starting a server) to verify:

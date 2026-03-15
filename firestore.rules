@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public lyrics cache (0243 generated cache) - adjust as needed
+    match /lyricsCache/{document=**} {
+      allow read, write: if true;
+    }
+    // User's own lyrics: only the authenticated user can read/write their document
+    match /userLyrics/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

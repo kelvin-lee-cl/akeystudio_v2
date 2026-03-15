@@ -1,1617 +1,1790 @@
 // Deepseek API Configuration
-const DEEPSEEK_API_KEY = 'sk-385c41d3fd0041b780652153be6dc675';
+const DEEPSEEK_API_KEY = 'sk-ec4311eb31674d1ca4aee5645392daf4'; // Replace with your actual API key
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
-// Tone mapping configuration
-const TONE_MAPPING = {
+// Catch unhandled promise rejections (e.g. FetchError) so buttons still work
+window.addEventListener('unhandledrejection', function (event) {
+    console.warn('Unhandled promise rejection:', event.reason);
+    event.preventDefault();
+});
+
+// Cache system
+let memoryCache = {};
+let lyricsCacheData = null;
+
+// 0243 words cache (pattern -> array of words)
+let words0243Cache = null;
+
+/**
+ * Fetch and parse 0243.txt, return words for the given 2-digit pattern (e.g. "00", "02", "03").
+ * @param {string} pattern - Two digits from 0,2,3,4 (e.g. "00", "02")
+ * @returns {Promise<string[]>} Array of words
+ */
+async function get0243WordsForPattern(pattern) {
+    if (!words0243Cache) {
+        try {
+            // Try relative to current page (works when served via http(s))
+            let res = await fetch('0243.txt').catch(function () { return null; });
+            if (!res || !res.ok) {
+                res = await fetch('./0243.txt').catch(function () { return null; });
+            }
+            if (!res || !res.ok) {
+                const isFileProtocol = typeof window !== 'undefined' && window.location && window.location.protocol === 'file:';
+                throw new Error(
+                    isFileProtocol
+                        ? '無法在 file:// 下載詞庫。請用本地伺服器開啟（例如在專案目錄執行：npx serve 或 python -m http.server 8080）'
+                        : '無法載入 0243.txt（' + (res ? res.status : '網絡錯誤') + '）'
+                );
+            }
+            let text = await res.text();
+            // Strip BOM (0243.txt may be saved with UTF-8 BOM, which breaks pattern matching)
+            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+            const lines = text.split(/\r?\n/);
+            words0243Cache = {};
+            for (let i = 0; i < lines.length; i++) {
+                const rawLine = lines[i];
+                const line = rawLine.replace(/\r$/, '').trim();
+                // Pattern only: "00" or "00  " (words on next line)
+                const matchOnly = line.match(/^(\d{2})\s*$/);
+                // Pattern + words on same line: "00  詞、語、..."
+                const matchWithWords = line.match(/^(\d{2})\s+([\s\S]+)$/);
+                const pat = matchOnly ? matchOnly[1] : (matchWithWords ? matchWithWords[1] : null);
+                if (!pat) continue;
+                let wordsLine = '';
+                if (matchWithWords && matchWithWords[2].trim()) {
+                    wordsLine = matchWithWords[2].trim();
+                } else {
+                    for (let j = i + 1; j < lines.length; j++) {
+                        const next = lines[j].replace(/\r$/, '').trim();
+                        if (next && !/^_+$/.test(next) && !/^\d{2}\s*$/.test(next)) {
+                            wordsLine = next;
+                            break;
+                        }
+                    }
+                }
+                const words = wordsLine ? wordsLine.split(/[、，]/).map(w => w.trim()).filter(Boolean) : [];
+                words0243Cache[pat] = words;
+            }
+        } catch (err) {
+            console.error('Error loading 0243.txt:', err);
+            words0243Cache = {};
+            throw err;
+        }
+    }
+    return words0243Cache[pattern] || [];
+}
+
+// Firebase functions
+async function saveJsonToFirebase(jsonData, inputKey) {
+    try {
+        if (!window.firebaseDb) {
+            console.warn('⚠ Firebase not initialized, skipping save to Firebase');
+            return false;
+        }
+
+        const db = window.firebaseDb;
+
+        // Save to Firebase with input key as document ID
+        await db.collection('lyricsCache').doc(inputKey).set({
+            data: jsonData,
+            updatedAt: new Date().toISOString(),
+            input: inputKey
+        }, { merge: true });
+
+        console.log('✓ JSON saved to Firebase:', inputKey);
+        console.log('  Collection: lyricsCache');
+        console.log('  Document ID:', inputKey);
+        return true;
+    } catch (error) {
+        console.error('✗ Error saving to Firebase:', error);
+        console.error('  Error details:', error.message);
+
+        if (error.message && error.message.includes('permissions')) {
+            console.error('');
+            console.error('⚠ FIREBASE PERMISSIONS ERROR');
+            console.error('You need to update Firestore security rules to allow read/write access.');
+            console.error('Go to Firebase Console → Firestore Database → Rules');
+            console.error('Update rules to:');
+            console.error('  rules_version = \'2\';');
+            console.error('  service cloud.firestore {');
+            console.error('    match /databases/{database}/documents {');
+            console.error('      match /lyricsCache/{document=**} {');
+            console.error('        allow read, write: if true;');
+            console.error('      }');
+            console.error('    }');
+            console.error('  }');
+            console.error('');
+        }
+        return false;
+    }
+}
+
+async function loadJsonFromFirebase(inputKey) {
+    try {
+        if (!window.firebaseDb) {
+            console.warn('Firebase not initialized yet');
+            return null;
+        }
+
+        const db = window.firebaseDb;
+        const docRef = db.collection('lyricsCache').doc(inputKey);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            console.log('✓ JSON loaded from Firebase:', inputKey);
+            return data.data || data;
+        } else {
+            console.log('No Firebase data found for:', inputKey);
+            return null;
+        }
+    } catch (error) {
+        console.error('Error loading from Firebase:', error);
+        return null;
+    }
+}
+
+async function loadAllFromFirebase() {
+    try {
+        if (!window.firebaseDb) {
+            console.warn('Firebase not initialized yet');
+            return null;
+        }
+
+        const db = window.firebaseDb;
+        const querySnapshot = await db.collection('lyricsCache').get();
+        const firebaseData = {};
+
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const inputKey = data.input || doc.id;
+            firebaseData[inputKey] = data.data || data;
+        });
+
+        console.log('✓ All data loaded from Firebase');
+        return firebaseData;
+    } catch (error) {
+        console.error('Error loading all from Firebase:', error);
+
+        if (error.message && error.message.includes('permissions')) {
+            console.error('');
+            console.error('⚠ FIREBASE PERMISSIONS ERROR');
+            console.error('You need to update Firestore security rules to allow read/write access.');
+            console.error('Go to Firebase Console → Firestore Database → Rules');
+            console.error('Update rules to:');
+            console.error('  rules_version = \'2\';');
+            console.error('  service cloud.firestore {');
+            console.error('    match /databases/{database}/documents {');
+            console.error('      match /lyricsCache/{document=**} {');
+            console.error('        allow read, write: if true;');
+            console.error('      }');
+            console.error('    }');
+            console.error('  }');
+            console.error('');
+        }
+        return null;
+    }
+}
+
+// Initialize the app
+document.addEventListener('DOMContentLoaded', async function () {
+    console.log('✓ app.js loaded');
+
+    try {
+        // Wait for Firebase to initialize (check every 100ms, max 3 seconds)
+        let firebaseReady = false;
+        for (let i = 0; i < 30; i++) {
+            if (window.firebaseDb) {
+                firebaseReady = true;
+                console.log('✓ Firebase is ready');
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (!firebaseReady) {
+            console.warn('⚠ Firebase not ready after 3 seconds, continuing without Firebase');
+        } else {
+            // Load from Firebase first (latest version)
+            try {
+                console.log('Loading data from Firebase...');
+                const firebaseData = await loadAllFromFirebase();
+                if (firebaseData && Object.keys(firebaseData).length > 0) {
+                    memoryCache = { ...memoryCache, ...firebaseData };
+                    console.log('✓ Firebase data merged into cache:', Object.keys(firebaseData).length, 'items');
+                } else {
+                    console.log('ℹ No data found in Firebase (this is normal for first use)');
+                }
+            } catch (fbErr) {
+                console.warn('Firebase load failed (continuing without):', fbErr && fbErr.message ? fbErr.message : fbErr);
+            }
+        }
+
+        // Load lyrics cache from file (fallback) – await so FetchError is caught
+        await loadLyricsCache();
+    } catch (initErr) {
+        console.warn('Init load error (continuing):', initErr && initErr.message ? initErr.message : initErr);
+    }
+
+    // Load cache from localStorage
+    loadLocalStorageCache();
+
+    // Form submission handler
+    const lyricForm = document.getElementById('lyricForm');
+    if (lyricForm) {
+        lyricForm.addEventListener('submit', handleFormSubmit);
+    }
+
+    // Regenerate button
+    const regenerateBtn = document.getElementById('regenerateBtn');
+    if (regenerateBtn) {
+        regenerateBtn.addEventListener('click', openRegenerateModal);
+    }
+
+    // Regenerate modal handlers
+    setupRegenerateModal();
+
+    // View JSON button
+    const viewJsonBtn = document.getElementById('viewJsonBtn');
+    if (viewJsonBtn) {
+        viewJsonBtn.addEventListener('click', toggleJsonOutput);
+    }
+
+    // Edit JSON button
+    const editJsonBtn = document.getElementById('editJsonBtn');
+    if (editJsonBtn) {
+        editJsonBtn.addEventListener('click', enableJsonEdit);
+    }
+
+    // Save JSON button
+    const saveJsonBtn = document.getElementById('saveJsonBtn');
+    if (saveJsonBtn) {
+        saveJsonBtn.addEventListener('click', saveJsonEdit);
+    }
+
+    // Cancel JSON edit button
+    const cancelJsonBtn = document.getElementById('cancelJsonBtn');
+    if (cancelJsonBtn) {
+        cancelJsonBtn.addEventListener('click', cancelJsonEdit);
+    }
+
+    // Update cache button
+    const updateCacheBtn = document.getElementById('updateCacheBtn');
+    if (updateCacheBtn) {
+        updateCacheBtn.addEventListener('click', updateCacheFile);
+    }
+
+    // Download cache button
+    const downloadCacheBtn = document.getElementById('downloadCacheBtn');
+    if (downloadCacheBtn) {
+        downloadCacheBtn.addEventListener('click', downloadCache);
+    }
+
+    // My Lyrics button
+    const myLyricsBtn = document.getElementById('myLyricsBtn');
+    if (myLyricsBtn) {
+        myLyricsBtn.addEventListener('click', openMyLyricsModal);
+    }
+
+    // My Lyrics modal handlers
+    setupMyLyricsModal();
+
+    // Login panel and Firebase Auth
+    setupLoginPanel();
+    if (window.firebaseAuth) {
+        window.firebaseAuth.onAuthStateChanged(function (user) {
+            updateLoginUI(user);
+        });
+    }
+    window.openLoginPanel = openLoginPanel;
+    window.openMyLyricsModal = openMyLyricsModal;
+});
+
+// Load lyrics cache from JSON file
+async function loadLyricsCache() {
+    try {
+        const response = await fetch('lyrics-cache.json');
+        if (response.ok) {
+            lyricsCacheData = await response.json();
+            console.log('✓ Loaded lyrics-cache.json');
+        }
+    } catch (error) {
+        var msg = (error && (error.message || error.name)) ? (error.message || error.name) : String(error);
+        console.warn('Could not load lyrics-cache.json:', msg);
+        lyricsCacheData = null;
+    }
+}
+
+// Load cache from localStorage
+function loadLocalStorageCache() {
+    try {
+        const cached = localStorage.getItem('lyricsCache');
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            memoryCache = { ...memoryCache, ...parsed };
+            console.log('✓ Loaded cache from localStorage');
+        }
+    } catch (error) {
+        console.warn('Could not load localStorage cache:', error);
+    }
+}
+
+// Save cache to localStorage
+function saveToLocalStorage(cacheData) {
+    try {
+        localStorage.setItem('lyricsCache', JSON.stringify(cacheData));
+    } catch (error) {
+        console.warn('Could not save to localStorage:', error);
+    }
+}
+
+// Digit to tone mapping (canonical 0,2,3,4)
+const digitToTones = {
     '0': [4],
     '2': [6, 9],
     '3': [1, 2, 7],
     '4': [3, 5, 8]
 };
 
-// DOM elements (will be initialized when DOM is ready)
-let form, inputDigits, generateBtn, errorMessage, resultsSection, resultsContainer, jsonOutput, jsonContent, copyJsonBtn, viewJsonBtn, regenerateBtn, downloadCacheBtn, selectAllBtn, deleteSelectedBtn, selectedCountSpan;
-let regenerateModal, patternsCheckboxContainer, phraseCountInput, submitRegenerateBtn, cancelRegenerateBtn, selectAllPatternsBtn, deselectAllPatternsBtn, modalClose;
+// 0243 page: map user digits 0–9 to canonical 0,2,3,4
+// 1＝3＝9, 4＝5＝8, 2＝6, 0＝0. 7 maps to 3 (tone 7 is in group 3).
+const digitToCanonical0243 = {
+    '0': '0',
+    '1': '3', '3': '3', '7': '3', '9': '3',
+    '2': '2', '6': '2',
+    '4': '4', '5': '4', '8': '4'
+};
 
-// Lyrics cache (loaded from JSON file)
-let lyricsCache = {};
+/** Normalize 0243 input (e.g. "19" → "33") for lookup in 0243.txt */
+function normalize0243Input(input) {
+    if (!/^[0-9]{2}$/.test(input)) return null;
+    const a = digitToCanonical0243[input[0]];
+    const b = digitToCanonical0243[input[1]];
+    if (a == null || b == null) return null;
+    return a + b;
+}
 
-// Load lyrics cache from JSON file
-async function loadLyricsCache(forceReload = false) {
-    // If cache is already loaded and has entries, don't reload (unless forced)
-    if (!forceReload && Object.keys(lyricsCache).length > 0) {
-        console.log('📥 Cache already loaded:', Object.keys(lyricsCache).length, 'entries');
-        console.log('📥 Cache keys:', Object.keys(lyricsCache).slice(0, 10).join(', '));
-        return true;
+// Generate all possible tone patterns from input digits
+function generateTonePatterns(input) {
+    const digits = input.split('');
+    const toneOptions = digits.map(digit => digitToTones[digit] || []);
+
+    // Generate all combinations
+    function generateCombinations(arrays) {
+        if (arrays.length === 0) return [[]];
+        const [first, ...rest] = arrays;
+        const restCombinations = generateCombinations(rest);
+        const result = [];
+        for (const option of first) {
+            for (const combo of restCombinations) {
+                result.push([option, ...combo]);
+            }
+        }
+        return result;
     }
 
+    const combinations = generateCombinations(toneOptions);
+    return combinations.map(combo => combo.join(' '));
+}
+
+// Check cache for existing results
+async function getCachedResult(input) {
+    // Check memory cache first
+    if (memoryCache[input]) {
+        return memoryCache[input];
+    }
+
+    // Check Firebase (latest version)
     try {
-        console.log('📥 Loading lyrics-cache.json...');
-        // Add timestamp to prevent browser caching
-        const cacheBuster = `?t=${Date.now()}`;
-        const url = `lyrics-cache.json${cacheBuster}`;
-        console.log('📥 Fetching:', url);
-        const response = await fetch(url, {
-            cache: 'no-store', // Don't use browser cache
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-            }
-        });
+        const firebaseData = await loadJsonFromFirebase(input);
+        if (firebaseData) {
+            memoryCache[input] = firebaseData;
+            return firebaseData;
+        }
+    } catch (e) {
+        console.warn('Firebase cache read failed:', e && (e.message || e.name) ? e.message || e.name : e);
+    }
 
-        console.log('📥 Response status:', response.status, response.statusText);
-
-        if (response.ok) {
-            const text = await response.text();
-            console.log('📥 Raw response length:', text.length, 'characters');
-
-            try {
-                const data = JSON.parse(text);
-                lyricsCache = data; // Overwrite with loaded data
-                const keys = Object.keys(lyricsCache);
-                console.log('✓ Lyrics cache loaded:', keys.length, 'entries');
-                console.log('✓ Sample keys:', keys.slice(0, 10));
-
-                // Verify structure
-                if (keys.length > 0) {
-                    const firstKey = keys[0];
-                    const firstEntry = lyricsCache[firstKey];
-                    console.log('✓ Cache structure verified - sample entry:', {
-                        key: firstKey,
-                        hasInput: !!firstEntry.input,
-                        hasResults: !!firstEntry.results
-                    });
-                }
-                return true;
-            } catch (parseError) {
-                console.error('❌ JSON parsing error:', parseError);
-                console.error('❌ Response preview:', text.substring(0, 200));
-                lyricsCache = {};
-                return false;
-            }
-        } else {
-            console.error('❌ Failed to load lyrics-cache.json:', response.status, response.statusText);
-            lyricsCache = {};
-            return false;
+    // Check localStorage
+    try {
+        const cached = localStorage.getItem(`lyrics_${input}`);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            memoryCache[input] = parsed;
+            return parsed;
         }
     } catch (error) {
-        console.error('❌ Error loading lyrics cache:', error);
-        lyricsCache = {};
-        return false;
-    }
-}
-
-// Save lyrics to cache (in memory and optionally to localStorage)
-function saveToCache(input, responseData) {
-    lyricsCache[input] = responseData;
-
-    // Also save to localStorage as backup
-    try {
-        localStorage.setItem('lyricsCache', JSON.stringify(lyricsCache));
-        console.log('✓ Saved to cache:', input);
-    } catch (e) {
-        console.warn('⚠️ Could not save to localStorage:', e);
-    }
-}
-
-// Get lyrics from cache
-function getFromCache(input) {
-    // Debug: Log cache state
-    console.log('🔍 Checking cache for input:', input);
-    console.log('🔍 Cache keys available:', Object.keys(lyricsCache).length);
-
-    // Check if input exists as a key
-    if (input in lyricsCache) {
-        const cachedEntry = lyricsCache[input];
-        console.log('✓✅ FOUND IN CACHE!');
-        console.log('   Input:', cachedEntry.input);
-        console.log('   Has results:', !!cachedEntry.results);
-        console.log('   Has patterns:', !!cachedEntry.patterns);
-
-        // Verify the entry structure matches what we expect
-        if (cachedEntry && cachedEntry.input === input) {
-            return cachedEntry;
-        } else {
-            console.warn('⚠️ Cache entry structure mismatch:', cachedEntry);
-        }
+        console.warn('Error reading localStorage:', error);
     }
 
-    console.log('   ❌ Key "' + input + '" not found in cache');
-    console.log('   Available keys:', Object.keys(lyricsCache).slice(0, 20).join(', '));
-
-    // Check localStorage as backup
-    try {
-        const localCache = localStorage.getItem('lyricsCache');
-        if (localCache) {
-            const parsed = JSON.parse(localCache);
-            if (parsed[input]) {
-                console.log('✓ Found in localStorage cache:', input);
-                lyricsCache[input] = parsed[input]; // Update in-memory cache
-                return parsed[input];
-            }
-        }
-    } catch (e) {
-        console.warn('⚠️ Error reading localStorage:', e);
+    // Check lyrics-cache.json
+    if (lyricsCacheData && lyricsCacheData[input]) {
+        memoryCache[input] = lyricsCacheData[input];
+        return lyricsCacheData[input];
     }
 
     return null;
 }
 
-// Initialize when DOM is ready
-(function () {
-    'use strict';
-
-    function init() {
-        console.log('Cantonese Lyric Generator initialized');
-        console.log('Document ready state:', document.readyState);
-
-        // Get DOM elements
-        form = document.getElementById('lyricForm');
-        inputDigits = document.getElementById('inputDigits');
-        generateBtn = document.getElementById('generateBtn');
-        errorMessage = document.getElementById('errorMessage');
-        resultsSection = document.getElementById('resultsSection');
-        resultsContainer = document.getElementById('resultsContainer');
-        jsonOutput = document.getElementById('jsonOutput');
-        jsonContent = document.getElementById('jsonContent');
-        copyJsonBtn = document.getElementById('copyJsonBtn');
-        viewJsonBtn = document.getElementById('viewJsonBtn');
-        regenerateBtn = document.getElementById('regenerateBtn');
-        downloadCacheBtn = document.getElementById('downloadCacheBtn');
-        selectAllBtn = document.getElementById('selectAllBtn');
-        deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
-        selectedCountSpan = document.getElementById('selectedCount');
-
-        // Modal elements
-        regenerateModal = document.getElementById('regenerateModal');
-        patternsCheckboxContainer = document.getElementById('patternsCheckboxContainer');
-        phraseCountInput = document.getElementById('phraseCountInput');
-        submitRegenerateBtn = document.getElementById('submitRegenerateBtn');
-        cancelRegenerateBtn = document.getElementById('cancelRegenerateBtn');
-        selectAllPatternsBtn = document.getElementById('selectAllPatternsBtn');
-        deselectAllPatternsBtn = document.getElementById('deselectAllPatternsBtn');
-        modalClose = regenerateModal?.querySelector('.modal-close');
-
-        // Debug: Log all elements
-        console.log('DOM Elements check:');
-        console.log('  form:', form ? '✓' : '✗');
-        console.log('  inputDigits:', inputDigits ? '✓' : '✗');
-        console.log('  generateBtn:', generateBtn ? '✓' : '✗');
-        console.log('  errorMessage:', errorMessage ? '✓' : '✗');
-
-        // Verify all DOM elements exist
-        if (!form || !inputDigits || !generateBtn) {
-            console.error('Required DOM elements not found');
-            console.error('Available elements:', Array.from(document.querySelectorAll('[id]')).map(el => el.id));
-
-            // Try again after a short delay if elements not found
-            if (document.readyState === 'loading' || !form) {
-                console.log('Retrying initialization in 100ms...');
-                setTimeout(init, 100);
-                return;
-            }
-
-            if (errorMessage) {
-                errorMessage.textContent = 'Application initialization failed. Please refresh the page.';
-                errorMessage.style.display = 'block';
-            }
-            return;
-        }
-
-        console.log('✓ All DOM elements found, setting up event listeners...');
-
-        // Load lyrics cache immediately on initialization
-        loadLyricsCache().then((success) => {
-            if (success) {
-                console.log('✓ Cache loading completed during initialization');
-                console.log('✓ Cache ready with', Object.keys(lyricsCache).length, 'entries');
-            } else {
-                console.warn('⚠️ Cache loading failed during initialization');
-            }
-        }).catch((error) => {
-            console.error('❌ Cache loading error during initialization:', error);
-        });
-
-        // Set up event listeners
-        setupEventListeners();
-
-        console.log('✓ Application ready!');
-    }
-
-    // Wait for DOM to be ready - use multiple strategies
-    if (document.readyState === 'loading') {
-        // Still loading - wait for DOMContentLoaded
-        document.addEventListener('DOMContentLoaded', init);
-    } else if (document.readyState === 'interactive') {
-        // DOM is interactive but might not be fully parsed
-        document.addEventListener('DOMContentLoaded', init);
-        // Also try after a short delay as backup
-        setTimeout(init, 100);
-    } else {
-        // DOM is complete - but wait a tick to ensure all scripts are parsed
-        setTimeout(init, 0);
-    }
-})();
-
-function setupEventListeners() {
-    // Input validation on type
-    if (inputDigits) {
-        inputDigits.addEventListener('input', (e) => {
-            const value = e.target.value;
-            // Only allow digits 0, 2, 3, 4
-            e.target.value = value.replace(/[^0234]/g, '');
-        });
-    }
-
-    // Handle form submission
-    if (form) {
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            hideError();
-
-            const input = inputDigits.value.trim();
-            const validation = validateInput(input);
-
-            if (!validation.valid) {
-                showError(validation.error);
-                return;
-            }
-
-            // Show loading state
-            generateBtn.disabled = true;
-            const btnText = generateBtn.querySelector('.btn-text');
-            const btnLoader = generateBtn.querySelector('.btn-loader');
-
-            if (btnText) btnText.style.display = 'none';
-            if (btnLoader) {
-                btnLoader.style.display = 'inline';
-                btnLoader.textContent = '⏳ Processing...';
-            }
-
-            try {
-                console.log('═══════════════════════════════════════');
-                console.log('🔍 Processing input:', input);
-                console.log('═══════════════════════════════════════');
-
-                // STEP 1: Ensure cache is loaded from lyrics-cache.json
-                console.log('📥 Step 1: Ensuring cache is loaded...');
-                console.log('   📥 Current cache state:', Object.keys(lyricsCache).length, 'entries');
-
-                // Force reload to ensure we have the latest cache
-                const cacheLoaded = await loadLyricsCache(true); // Force reload
-                if (!cacheLoaded) {
-                    console.warn('⚠️ Cache loading failed, but continuing...');
-                }
-                console.log('   ✓ Cache status:', cacheLoaded ? 'LOADED' : 'FAILED');
-                console.log('   ✓ Cache entries:', Object.keys(lyricsCache).length);
-                console.log('   ✓ Cache keys:', Object.keys(lyricsCache));
-
-                // Show first few keys for debugging
-                const cacheKeys = Object.keys(lyricsCache);
-                if (cacheKeys.length > 0) {
-                    console.log('   ✓ Sample cache keys:', cacheKeys.slice(0, 5).join(', '));
-                }
-
-                // STEP 2: Check if result exists in cache BEFORE making API calls
-                console.log('🔍 Step 2: Checking cache for input "' + input + '"...');
-                console.log('   🔍 Input type:', typeof input);
-                console.log('   🔍 Input value:', JSON.stringify(input));
-                console.log('   🔍 All cache keys:', Object.keys(lyricsCache));
-                console.log('   🔍 Checking if "' + input + '" in cache:', input in lyricsCache);
-
-                const cachedData = getFromCache(input);
-
-                if (cachedData) {
-                    console.log('   ✓✅ FOUND IN CACHE!');
-                    console.log('   ✓ Cache data structure:', {
-                        input: cachedData.input,
-                        patterns: Object.keys(cachedData.patterns || {}),
-                        results: Object.keys(cachedData.results || {})
-                    });
-                    console.log('   ⚠️ SKIPPING Deepseek API calls - using cached data');
-                    console.log('═══════════════════════════════════════');
-
-                    // Update button to show cache hit
-                    if (btnLoader) {
-                        btnLoader.textContent = '✓ Loaded from cache';
-                        setTimeout(() => {
-                            if (btnLoader) btnLoader.style.display = 'none';
-                            if (btnText) btnText.style.display = 'inline';
-                        }, 1000);
-                    }
-
-                    // Display cached results immediately
-                    displayResults(cachedData, true); // true = from cache
-                    generateBtn.disabled = false;
-                    return; // IMPORTANT: Exit early - no API calls made
-                }
-
-                // STEP 3: Not found in cache - proceed to Deepseek API
-                console.log('   ❌ NOT FOUND IN CACHE');
-                console.log('   → Proceeding to Deepseek API calls...');
-                console.log('═══════════════════════════════════════');
-
-                // Not in cache - generate tone patterns
-                const { patterns } = generateTonePatterns(input);
-                const digitMapping = buildDigitMapping(input);
-
-                console.log(`Generated ${patterns.length} tone patterns`);
-
-                // Limit patterns to prevent too many API calls (max 10 patterns)
-                const maxPatterns = 10;
-                const patternsToProcess = patterns.slice(0, maxPatterns);
-
-                if (patterns.length > maxPatterns) {
-                    showError(`Too many patterns (${patterns.length}). Processing first ${maxPatterns} patterns only.`);
-                }
-
-                console.log(`Processing ${patternsToProcess.length} of ${patterns.length} patterns`);
-
-                // Update progress
-                if (btnLoader) {
-                    btnLoader.textContent = `⏳ Processing ${patternsToProcess.length} patterns...`;
-                }
-
-                // Generate lyrics via API
-                const results = await generateLyrics(patternsToProcess, input.length, 3, (progress) => {
-                    // Update progress callback
-                    if (btnLoader) {
-                        btnLoader.textContent = `⏳ Processing... ${progress.current}/${progress.total}`;
-                    }
-                });
-
-                console.log('Results received:', Object.keys(results).length, 'patterns');
-
-                // Build response
-                const responseData = buildResponse(input, digitMapping, patterns, results);
-
-                // Save to cache for future use
-                saveToCache(input, responseData);
-
-                // Display results
-                displayResults(responseData, false); // false = not from cache
-
-            } catch (error) {
-                console.error('Error:', error);
-                let errorMsg = 'An error occurred while generating lyrics. ';
-                if (error.message.includes('CORS') || error.message.includes('fetch')) {
-                    errorMsg += 'This might be a CORS issue. Try using a local server or check your network connection.';
-                } else if (error.message.includes('API error')) {
-                    errorMsg += `API Error: ${error.message}`;
-                } else {
-                    errorMsg += `Error: ${error.message}`;
-                }
-                showError(errorMsg);
-            } finally {
-                // Reset button state
-                generateBtn.disabled = false;
-                const btnText = generateBtn.querySelector('.btn-text');
-                const btnLoader = generateBtn.querySelector('.btn-loader');
-
-                if (btnText) btnText.style.display = 'inline';
-                if (btnLoader) btnLoader.style.display = 'none';
-            }
-        });
-    }
-
-    // Copy JSON to clipboard
-    if (copyJsonBtn) {
-        copyJsonBtn.addEventListener('click', () => {
-            const jsonText = jsonContent.textContent;
-            navigator.clipboard.writeText(jsonText).then(() => {
-                copyJsonBtn.textContent = '✓ Copied!';
-                setTimeout(() => {
-                    copyJsonBtn.textContent = 'Copy JSON';
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                alert('Failed to copy to clipboard');
-            });
-        });
-    }
-
-    // Toggle JSON view
-    if (viewJsonBtn) {
-        viewJsonBtn.addEventListener('click', () => {
-            if (jsonOutput) {
-                const isCollapsed = jsonOutput.classList.contains('collapsed');
-                if (isCollapsed) {
-                    jsonOutput.classList.remove('collapsed');
-                    viewJsonBtn.textContent = 'Hide JSON';
-                } else {
-                    jsonOutput.classList.add('collapsed');
-                    viewJsonBtn.textContent = 'View JSON';
-                }
-            }
-        });
-    }
-
-    // Regenerate lyrics (show modal)
-    if (regenerateBtn) {
-        regenerateBtn.addEventListener('click', () => {
-            const currentInput = inputDigits.value.trim();
-            if (!currentInput) {
-                showError('Please enter an input first');
-                return;
-            }
-
-            if (!window.currentResponseData) {
-                showError('No results to regenerate. Please generate lyrics first.');
-                return;
-            }
-
-            // Show modal and populate patterns
-            showRegenerateModal();
-        });
-    }
-
-    // Modal handlers
-    if (regenerateModal) {
-        // Close modal handlers
-        if (modalClose) {
-            modalClose.addEventListener('click', closeRegenerateModal);
-        }
-        if (cancelRegenerateBtn) {
-            cancelRegenerateBtn.addEventListener('click', closeRegenerateModal);
-        }
-
-        // Close on backdrop click
-        regenerateModal.addEventListener('click', (e) => {
-            if (e.target === regenerateModal) {
-                closeRegenerateModal();
-            }
-        });
-
-        // Select all patterns
-        if (selectAllPatternsBtn) {
-            selectAllPatternsBtn.addEventListener('click', () => {
-                const checkboxes = patternsCheckboxContainer?.querySelectorAll('input[type="checkbox"]');
-                checkboxes?.forEach(cb => cb.checked = true);
-            });
-        }
-
-        // Deselect all patterns
-        if (deselectAllPatternsBtn) {
-            deselectAllPatternsBtn.addEventListener('click', () => {
-                const checkboxes = patternsCheckboxContainer?.querySelectorAll('input[type="checkbox"]');
-                checkboxes?.forEach(cb => cb.checked = false);
-            });
-        }
-
-        // Submit regenerate
-        if (submitRegenerateBtn) {
-            submitRegenerateBtn.addEventListener('click', async () => {
-                await handleRegenerate();
-            });
-        }
-    }
-
-    // Function to show regenerate modal
-    function showRegenerateModal() {
-        if (!regenerateModal || !window.currentResponseData) return;
-
-        const patternType = Object.keys(window.currentResponseData.patterns)[0];
-        const patterns = window.currentResponseData.patterns[patternType];
-
-        // Populate patterns checkboxes
-        if (patternsCheckboxContainer) {
-            patternsCheckboxContainer.innerHTML = '';
-            patterns.forEach(pattern => {
-                const label = document.createElement('label');
-                label.className = 'pattern-checkbox-label';
-                label.style.display = 'flex';
-                label.style.alignItems = 'center';
-                label.style.gap = '8px';
-                label.style.cursor = 'pointer';
-                label.style.padding = '8px 12px';
-                label.style.borderRadius = '8px';
-                label.style.transition = 'background 0.2s ease';
-                label.innerHTML = `
-                    <input type="checkbox" value="${pattern}" checked style="width: 18px; height: 18px; cursor: pointer;">
-                    <span>${pattern}</span>
-                `;
-                label.addEventListener('mouseenter', () => {
-                    label.style.background = '#f0f0f0';
-                });
-                label.addEventListener('mouseleave', () => {
-                    label.style.background = 'transparent';
-                });
-                patternsCheckboxContainer.appendChild(label);
-            });
-        }
-
-        // Reset phrase count to default
-        if (phraseCountInput) {
-            phraseCountInput.value = '3';
-        }
-
-        // Show modal
-        regenerateModal.style.display = 'flex';
-    }
-
-    // Function to close regenerate modal
-    function closeRegenerateModal() {
-        if (regenerateModal) {
-            regenerateModal.style.display = 'none';
-        }
-    }
-
-    // Function to handle regenerate submission
-    async function handleRegenerate() {
-        const currentInput = inputDigits.value.trim();
-        if (!currentInput) {
-            showError('Please enter an input first');
-            return;
-        }
-
-        // Get selected patterns
-        const checkboxes = patternsCheckboxContainer?.querySelectorAll('input[type="checkbox"]:checked');
-        if (!checkboxes || checkboxes.length === 0) {
-            showError('Please select at least one pattern to regenerate');
-            return;
-        }
-
-        const selectedPatterns = Array.from(checkboxes).map(cb => cb.value);
-
-        // Get phrase count
-        const phraseCount = parseInt(phraseCountInput?.value || '3', 10);
-        if (isNaN(phraseCount) || phraseCount < 1 || phraseCount > 10) {
-            showError('Please enter a valid phrase count (1-10)');
-            return;
-        }
-
-        // Close modal
-        closeRegenerateModal();
-
-        // Disable regenerate button and show loading
-        regenerateBtn.disabled = true;
-        regenerateBtn.textContent = '⏳ Regenerating...';
-        hideError();
-
-        try {
-            // Ensure cache is loaded before processing
-            await loadLyricsCache();
-
-            // Get existing phrases to avoid duplicates
-            const existingPhrases = new Set();
-            if (window.currentResponseData) {
-                const patternType = Object.keys(window.currentResponseData.patterns)[0];
-                const existingResults = window.currentResponseData.results[patternType];
-
-                Object.keys(existingResults).forEach(pattern => {
-                    if (!pattern.endsWith('_error') && existingResults[pattern]) {
-                        existingResults[pattern].forEach(phrase => {
-                            existingPhrases.add(phrase.phrase);
-                        });
-                    }
-                });
-            }
-
-            console.log(`Found ${existingPhrases.size} existing phrases to avoid duplicating`);
-            console.log(`Regenerating ${selectedPatterns.length} patterns:`, selectedPatterns);
-            console.log(`Phrases per pattern: ${phraseCount}`);
-
-            // Generate lyrics via API with selected patterns and phrase count
-            const newResults = await generateLyrics(selectedPatterns, currentInput.length, phraseCount, (progress) => {
-                regenerateBtn.textContent = `⏳ Regenerating... ${progress.current}/${progress.total}`;
-            });
-
-            console.log('Regenerated results received:', Object.keys(newResults).length, 'patterns');
-
-            // Merge new results with existing ones, filtering duplicates
-            let mergedResults = {};
-            if (window.currentResponseData) {
-                const patternType = Object.keys(window.currentResponseData.patterns)[0];
-                const existingResults = window.currentResponseData.results[patternType];
-                const { patterns: allPatterns } = generateTonePatterns(currentInput);
-
-                // Start with existing results
-                mergedResults = JSON.parse(JSON.stringify(existingResults));
-
-                // Add new phrases that don't already exist
-                Object.keys(newResults).forEach(pattern => {
-                    if (!pattern.endsWith('_error') && newResults[pattern]) {
-                        if (!mergedResults[pattern]) {
-                            mergedResults[pattern] = [];
-                        }
-
-                        newResults[pattern].forEach(newPhrase => {
-                            if (!existingPhrases.has(newPhrase.phrase)) {
-                                mergedResults[pattern].push(newPhrase);
-                                console.log(`Adding new phrase: "${newPhrase.phrase}"`);
-                            } else {
-                                console.log(`Skipping duplicate: "${newPhrase.phrase}"`);
-                            }
-                        });
-                    }
-                });
-            } else {
-                // No existing data, use new results as-is
-                mergedResults = newResults;
-            }
-
-            const digitMapping = buildDigitMapping(currentInput);
-            const { patterns: allPatterns } = generateTonePatterns(currentInput);
-
-            // Build response with merged results
-            const responseData = buildResponse(currentInput, digitMapping, allPatterns, mergedResults);
-
-            // Update cache with merged results
-            saveToCache(currentInput, responseData);
-
-            // Display merged results
-            displayResults(responseData, false); // false = not from cache
-
-            const newPhrasesCount = Object.keys(mergedResults).reduce((count, pattern) => {
-                if (!pattern.endsWith('_error')) {
-                    return count + (mergedResults[pattern] ? mergedResults[pattern].length : 0);
-                }
-                return count;
-            }, 0) - existingPhrases.size;
-
-            regenerateBtn.textContent = `✓ Added ${newPhrasesCount} new phrases!`;
-            setTimeout(() => {
-                regenerateBtn.textContent = '🔄 Regenerate';
-            }, 3000);
-
-        } catch (error) {
-            console.error('Regeneration error:', error);
-            let errorMsg = 'An error occurred while regenerating lyrics. ';
-            if (error.message.includes('CORS') || error.message.includes('fetch')) {
-                errorMsg += 'This might be a CORS issue. Try using a local server or check your network connection.';
-            } else if (error.message.includes('API error')) {
-                errorMsg += `API Error: ${error.message}`;
-            } else {
-                errorMsg += `Error: ${error.message}`;
-            }
-            showError(errorMsg);
-            regenerateBtn.textContent = '🔄 Regenerate';
-        } finally {
-            regenerateBtn.disabled = false;
-        }
-    }
-
-    // Download updated cache file
-    if (downloadCacheBtn) {
-        downloadCacheBtn.addEventListener('click', () => {
-            const cacheJson = JSON.stringify(lyricsCache, null, 4);
-            const blob = new Blob([cacheJson], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'lyrics-cache.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            downloadCacheBtn.textContent = '✓ Downloaded!';
-            setTimeout(() => {
-                downloadCacheBtn.textContent = '💾 Download Cache';
-            }, 2000);
-        });
-    }
-
-    // Select All functionality
-    if (selectAllBtn) {
-        selectAllBtn.addEventListener('click', () => {
-            const checkboxes = document.querySelectorAll('.phrase-checkbox');
-            const allSelected = Array.from(checkboxes).every(cb => cb.checked);
-
-            checkboxes.forEach(cb => {
-                cb.checked = !allSelected;
-                const phrase = cb.dataset.phrase;
-                if (!allSelected) {
-                    window.selectedPhrases.add(phrase);
-                } else {
-                    window.selectedPhrases.delete(phrase);
-                }
-            });
-
-            updateSelectedCount();
-            selectAllBtn.textContent = allSelected ? '✓ Select All' : '☐ Deselect All';
-        });
-    }
-
-    // Delete Selected functionality
-    if (deleteSelectedBtn) {
-        deleteSelectedBtn.addEventListener('click', () => {
-            if (window.selectedPhrases.size === 0) {
-                alert('No phrases selected');
-                return;
-            }
-
-            if (!confirm(`Delete ${window.selectedPhrases.size} selected phrase(s)?`)) {
-                return;
-            }
-
-            if (!window.currentResponseData) {
-                console.error('No current response data available');
-                return;
-            }
-
-            const responseData = window.currentResponseData;
-            const patternType = Object.keys(responseData.patterns)[0];
-            const results = responseData.results[patternType];
-
-            // Remove all selected phrases from all patterns
-            let deleted = false;
-            const phrasesToDelete = Array.from(window.selectedPhrases); // Create copy to iterate
-
-            phrasesToDelete.forEach(phraseText => {
-                // Find which patterns contain this phrase
-                Object.keys(results).forEach(pattern => {
-                    if (results[pattern] && Array.isArray(results[pattern])) {
-                        const originalLength = results[pattern].length;
-                        results[pattern] = results[pattern].filter(phrase => phrase.phrase !== phraseText);
-                        if (results[pattern].length < originalLength) {
-                            deleted = true;
-                        }
-                        // Remove empty pattern arrays
-                        if (results[pattern].length === 0) {
-                            delete results[pattern];
-                        }
-                    }
-                });
-            });
-
-            // Clean up empty pattern objects
-            const patternKeys = Object.keys(results);
-            if (patternKeys.length === 0) {
-                // If no patterns left, clean up the entire results structure
-                delete responseData.results[patternType];
-            }
-
-            if (deleted) {
-                // Update cache (both in-memory and localStorage)
-                saveToCache(responseData.input, responseData);
-
-                // Store count before clearing
-                const deletedCount = window.selectedPhrases.size;
-
-                // Clear selection
-                window.selectedPhrases.clear();
-                updateSelectedCount();
-
-                // Re-display results
-                displayResults(responseData, true);
-
-                console.log(`✓ Deleted ${deletedCount} phrases completely from cache`);
-            }
-        });
-    }
+// Save result to cache
+async function saveToCache(input, result) {
+    memoryCache[input] = result;
+    saveToLocalStorage(memoryCache);
+
+    // Also save to Firebase
+    await saveJsonToFirebase(result, input);
 }
 
-// Update selected count display
-function updateSelectedCount() {
-    if (selectedCountSpan) {
-        const count = window.selectedPhrases ? window.selectedPhrases.size : 0;
-        selectedCountSpan.textContent = count;
+// Call Deepseek API to generate Cantonese phrases
+async function generatePhrasesWithDeepseek(tonePattern, topic = null, phraseCount = 2) {
+    const toneNumbers = tonePattern.split(' ').map(t => parseInt(t));
+    const patternLength = toneNumbers.length;
 
-        if (deleteSelectedBtn) {
-            deleteSelectedBtn.disabled = count === 0;
-        }
-    }
-}
+    let prompt = `Generate ${phraseCount} Cantonese phrases that match the tone pattern: ${tonePattern}. `;
+    prompt += `Each phrase should have exactly ${patternLength} characters. `;
+    prompt += `The tones must match exactly: ${toneNumbers.join(', ')}. `;
 
-// Validate input
-function validateInput(input) {
-    if (!input || input.length < 2 || input.length > 3) {
-        return { valid: false, error: 'Input must be 2-3 digits long' };
+    if (topic) {
+        prompt += `The theme/topic should be related to: ${topic}. `;
     }
 
-    if (!/^[0234]+$/.test(input)) {
-        return { valid: false, error: 'Invalid input. Please provide 2-3 digits from: 0,2,3,4' };
-    }
-
-    return { valid: true };
-}
-
-// Generate tone patterns
-function generateTonePatterns(input) {
-    const digits = input.split('');
-    const digitMapping = {};
-
-    // Create mapping for each digit position
-    digits.forEach((digit, index) => {
-        digitMapping[`${index}`] = TONE_MAPPING[digit];
-    });
-
-    // Generate all possible combinations
-    const toneArrays = digits.map(digit => TONE_MAPPING[digit]);
-    const patterns = cartesianProduct(toneArrays);
-
-    return {
-        digitMapping,
-        patterns: patterns.map(pattern => pattern.join(' '))
-    };
-}
-
-// Build digit mapping for response (showing actual digits)
-function buildDigitMapping(input) {
-    const digits = input.split('');
-    const mapping = {};
-
-    digits.forEach((digit, index) => {
-        mapping[`${index}`] = TONE_MAPPING[digit];
-    });
-
-    return mapping;
-}
-
-// Calculate cartesian product of arrays
-function cartesianProduct(arrays) {
-    return arrays.reduce((acc, curr) => {
-        const result = [];
-        acc.forEach(accItem => {
-            curr.forEach(currItem => {
-                result.push([...accItem, currItem]);
-            });
-        });
-        return result;
-    }, [[]]);
-}
-
-// Generate lyrics using Deepseek API
-async function generateLyrics(tonePatterns, inputLength, phraseCount = 3, progressCallback) {
-    const patternType = `${inputLength}-tone`;
-    const results = {};
-
-    // Create prompt for Deepseek
-    const systemPrompt = `You are a Cantonese linguistic analysis engine specializing in accurate Jyutping tone matching. Your sole purpose is to generate Cantonese phrases with PRECISELY correct Jyutping tones that match the specified tone pattern.
-
-CRITICAL REQUIREMENTS:
-1. Tone Accuracy: Each character's Jyutping tone MUST match the specified tone pattern EXACTLY. Double-check every tone digit.
-2. Verify Against CUHK Lexis: Before generating, you MUST verify the Jyutping using the CUHK Lexis database (https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/). This is the authoritative source for Cantonese Jyutping. Use ONLY tones verified from this database.
-3. PRIORITIZE COMMON, WELL-KNOWN PHRASES: Generate phrases that are commonly used in everyday Cantonese. Prefer well-known vocabulary and idioms over obscure or rare phrases.
-4. Common Mistakes to Avoid:
-   - "現在" is "jin6 zoi6" (tones 6 6), NOT "jin4 zoi4" (tones 4 4) - verify at https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/
-   - "現在" should only appear in patterns requiring tones 6 6, never in patterns requiring 4 4
-   - Always verify character tones match the pattern before including them
-   - If uncertain about any character's tone, consult CUHK Lexis database first
-5. If you cannot find a character with the exact required tone, do NOT use it. Find alternatives that match exactly.
-6. Double-check each character: Extract the tone digit from Jyutping (the number at the end) and verify it matches the required tone for that position.
-
-VALIDATION PROCESS FOR EACH PHRASE:
-Step 1: For each character, extract the tone digit from Jyutping
-Step 2: Compare extracted tone with required tone for that position
-Step 3: If ANY character's tone doesn't match, reject the phrase
-Step 4: Only include phrases where ALL tones match perfectly
-
-For each tone pattern provided:
-- Find Chinese characters where Jyutping tones match EXACTLY (verify each tone digit)
-- Form grammatically correct, meaningful Cantonese compounds
-- PRIORITIZE COMMON, EVERYDAY PHRASES that native speakers would recognize
-- Provide ACCURATE Jyutping with tone markers (verify against CUHK Lexis if uncertain)
-- Generate the specified number of phrases per pattern (prefer common phrases)
-- Only include phrases where ALL tones match perfectly
-- Before returning, verify each character's tone digit matches the pattern
-
-Return ONLY valid JSON in this exact format:
-{
-  "results": {
-    "pattern": [
-      {
-        "phrase": "example phrase",
-        "characters": [
-          {"char": "字", "jyutping": "zi6"},
-          {"char": "符", "jyutping": "fu4"}
-        ]
-      },
-      {
-        "phrase": "another phrase",
-        "characters": [
-          {"char": "詞", "jyutping": "ci4"},
-          {"char": "句", "jyutping": "geoi3"}
-        ]
-      }
-    ]
-  }
-}
-
-Replace "pattern" with the actual tone pattern string (e.g., "1 2 3" or "4 4").
-
-IMPORTANT: Before including any phrase in the response, verify:
-1. Each character's Jyutping ends with the correct tone digit
-2. The tone pattern matches exactly
-3. Use CUHK Lexis database (https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/) as reference for accurate Jyutping`;
-
-    // Process each pattern with progress tracking
-    const totalPatterns = tonePatterns.length;
-    let processedPatterns = 0;
-
-    for (const pattern of tonePatterns) {
-        processedPatterns++;
-        console.log(`[${processedPatterns}/${totalPatterns}] Generating lyrics for pattern: ${pattern}`);
-
-        // Call progress callback if provided
-        if (progressCallback) {
-            progressCallback({ current: processedPatterns, total: totalPatterns });
-        }
-
-        const tones = pattern.split(' ');
-
-        // Add pattern-specific examples for common patterns
-        let patternExamples = '';
-        if (pattern === '4 4') {
-            patternExamples = `
-EXCELLENT EXAMPLES FOR PATTERN "4 4" (tone 4 tone 4):
-- 如何 (jyu4 ho4) - "how"
-- 成為 (sing4 wai4) - "become"  
-- 原來 (jyun4 loi4) - "originally"
-- 從來 (cung4 loi4) - "always/never"
-- 任何 (jam4 ho4) - "any"
-- 同時 (tung4 si4) - "at the same time"
-- 傳統 (cyun4 tung2) - wait, this is wrong (tone 2, not 4)
-- 清楚 (cing1 co2) - wait, this is wrong
-
-PREFER generating common phrases like the examples above.`;
-        } else if (pattern === '6 6') {
-            patternExamples = `
-EXCELLENT EXAMPLES FOR PATTERN "6 6" (tone 6 tone 6):
-- 現在 (jin6 zoi6) - "now"
-- 重要 (zung6 jiu3) - wait, check tone
-- Use common everyday phrases with tone 6 6`;
-        }
-
-        const userPrompt = `Generate Cantonese lyric phrases for tone pattern: "${pattern}". 
-
-CRITICAL: The tones are: ${tones.map((t, i) => `Position ${i + 1}: tone ${t}`).join(', ')}.
-
-${patternExamples}
-
-MANDATORY VERIFICATION STEPS (repeat for each phrase):
-1. VERIFY WITH CUHK LEXIS FIRST: Before including any character, verify its Jyutping at https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/search.php?q=[CHARACTER]. This is the authoritative source.
-
-2. For each character, verify the Jyutping tone digit matches EXACTLY:
-   - Position 1: Jyutping MUST end with digit "${tones[0]}" (e.g., if tone ${tones[0]}, use "jin${tones[0]}", "zi${tones[0]}", etc.)
-   - ${tones.length > 1 ? tones.slice(1).map((t, i) => `Position ${i + 2}: Jyutping MUST end with digit "${t}"`).join('\n   - ') : ''}
-
-3. BEFORE including any phrase, verify each character:
-   - Character 1: Check if Jyutping ends with "${tones[0]}" - VERIFY at CUHK Lexis
-   - ${tones.length > 1 ? tones.slice(1).map((t, i) => `Character ${i + 2}: Check if Jyutping ends with "${t}" - VERIFY at CUHK Lexis`).join('\n   - ') : ''}
-   
-4. PRIORITIZE COMMON, WELL-KNOWN PHRASES that native Cantonese speakers use daily. Prefer phrases like those in the examples above.
-
-5. If ANY character's tone doesn't match, DO NOT include that phrase. Find another phrase where ALL tones match.
-
-6. VERIFICATION CHECKLIST FOR EACH PHRASE:
-   ☐ Each character's Jyutping verified against CUHK Lexis database
-   ☐ Each character's tone digit matches the required tone for its position
-   ☐ Phrase is grammatically correct and meaningful
-   ☐ Phrase is commonly used in Cantonese
-
-7. Common mistakes to avoid:
-   - "現在" = "jin6 zoi6" (tones 6 6) - ONLY use for pattern "6 6" - verify at CUHK Lexis
-   - "現在" ≠ "jin4 zoi4" - NEVER use "jin4 zoi4" for any pattern
-   - "係" = "hai6" (tone 6) - ONLY use when pattern requires tone 6
-   - Always verify the FINAL DIGIT of Jyutping matches the position requirement
-   - When in doubt, consult CUHK Lexis database first
-
-8. Generate ${phraseCount} common phrases where ALL tones match perfectly (prefer well-known vocabulary).
-
-9. Return ONLY valid JSON: {"results": {"${pattern}": [array of phrases]}}
-10. Each phrase must have exactly ${tones.length} characters.
-11. Each character's Jyutping tone digit must match the pattern position exactly.
-
-EXAMPLE FOR PATTERN "${pattern}":
-- Valid: Character 1 Jyutping ends with "${tones[0]}", Character ${tones.length > 1 ? `2 ends with "${tones[1]}"` : 'matches'} - BOTH verified at CUHK Lexis
-- Invalid: Any character where Jyutping tone digit doesn't match position requirement
-
-Remember: 
-1. Double-check EVERY character's tone digit BEFORE including the phrase
-2. Verify uncertain characters at https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/
-3. Prefer COMMON, EVERYDAY phrases that native speakers recognize
-4. If you're not 100% certain about a tone, DON'T include that phrase`;
-
-        try {
-            // Add timeout to API call (30 seconds per pattern)
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-            const response = await fetch(DEEPSEEK_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt }
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 2000,
-                    top_p: 0.95,
-                    frequency_penalty: 0.3,
-                    presence_penalty: 0.3
-                }),
-                signal: controller.signal
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                const errorMsg = errorData.error?.message || `API error: ${response.status} ${response.statusText}`;
-                console.error(`API Error:`, errorMsg);
-                throw new Error(errorMsg);
-            }
-
-            const data = await response.json();
-
-            // Check for API errors in response
-            if (data.error) {
-                throw new Error(data.error.message || 'API returned an error');
-            }
-
-            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-                throw new Error('Invalid API response format');
-            }
-
-            const content = data.choices[0].message.content.trim();
-            console.log(`API response for ${pattern}:`, content.substring(0, 200));
-
-            // Extract JSON from response (handle markdown code blocks)
-            let jsonStr = content;
-            if (content.includes('```json')) {
-                jsonStr = content.split('```json')[1].split('```')[0].trim();
-            } else if (content.includes('```')) {
-                jsonStr = content.split('```')[1].split('```')[0].trim();
-            }
-
-            // Try to parse JSON
-            let parsed;
-            try {
-                parsed = JSON.parse(jsonStr);
-            } catch (e) {
-                // If parsing fails, try to extract JSON object from text
-                const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    parsed = JSON.parse(jsonMatch[0]);
-                } else {
-                    throw new Error('Could not parse JSON from API response');
-                }
-            }
-
-            // Extract results - handle different response formats
-            let extractedPhrases = [];
-            if (parsed.results && parsed.results[pattern]) {
-                extractedPhrases = parsed.results[pattern];
-            } else if (parsed.results && Array.isArray(parsed.results)) {
-                extractedPhrases = parsed.results;
-            } else if (parsed[pattern]) {
-                extractedPhrases = parsed[pattern];
-            } else if (Array.isArray(parsed)) {
-                extractedPhrases = parsed;
-            }
-
-            // Validate tones match the pattern exactly using enhanced verification
-            const expectedTones = pattern.split(' ');
-            const validatedPhrases = [];
-            const invalidPhrases = [];
-
-            // Use local verification
-            extractedPhrases.forEach(phrase => {
-                const verification = verifyToneAccuracy(phrase, pattern);
-
-                if (verification.valid) {
-                    validatedPhrases.push(phrase);
-                } else {
-                    // Add detailed error information
-                    invalidPhrases.push({
-                        ...phrase,
-                        _invalidReason: verification.errors.join('; '),
-                        _actualTones: phrase.characters.map(char => extractTone(char.jyutping || '')),
-                        _expectedTones: expectedTones,
-                        _verificationErrors: verification.errors
-                    });
-
-                    // Log detailed errors
-                    console.warn(`⚠️ Phrase "${phrase.phrase}" failed verification:`);
-                    verification.errors.forEach(error => console.warn(`   - ${error}`));
-                }
-            });
-
-            if (invalidPhrases.length > 0) {
-                const filteredCount = invalidPhrases.length;
-                console.warn(`⚠️ Filtered out ${filteredCount} phrase(s) with incorrect tones for pattern "${pattern}"`);
-
-                // If no valid phrases but we have invalid ones, include them with warnings (so user can see what was attempted)
-                if (validatedPhrases.length === 0 && invalidPhrases.length > 0) {
-                    console.warn(`⚠️ No valid phrases for pattern "${pattern}". Including invalid ones with warnings for review.`);
-                    // Mark them as invalid but include them
-                    results[pattern] = invalidPhrases.map(p => ({ ...p, _isInvalid: true }));
-                } else {
-                    results[pattern] = validatedPhrases;
-                }
-            } else {
-                results[pattern] = validatedPhrases;
-            }
-        } catch (error) {
-            console.error(`Error generating lyrics for pattern ${pattern}:`, error);
-
-            // Handle timeout
-            if (error.name === 'AbortError') {
-                console.error('API request timed out after 30 seconds');
-                results[pattern] = [];
-                results[`${pattern}_error`] = 'Request timed out';
-            } else {
-                // Show error but continue with other patterns
-                results[pattern] = [];
-                // Store error for display
-                results[`${pattern}_error`] = error.message;
-            }
-        }
-    }
-
-    return results;
-}
-
-// Build response JSON
-function buildResponse(input, digitMapping, patterns, results) {
-    const inputLength = input.length;
-    const patternType = `${inputLength}-tone`;
-
-    return {
-        input: input,
-        input_length: inputLength,
-        digit_mapping: digitMapping,
-        patterns: {
-            [patternType]: patterns
-        },
-        results: {
-            [patternType]: results
-        }
-    };
-}
-
-// Extract tone number from jyutping (e.g., "sam1" -> "1", "zi6" -> "6")
-function extractTone(jyutping) {
-    const match = jyutping.match(/(\d+)$/);
-    return match ? match[1] : '';
-}
-
-// Verify Jyutping against CUHK Lexis database (attempts to verify, may be limited by CORS)
-async function verifyJyutpingWithCUHKLexis(character) {
-    // Note: CUHK Lexis doesn't have a public API, so we can't directly verify
-    // This function serves as a placeholder for future integration
-    // For now, we rely on the AI to verify using the database
+    prompt += `For each phrase, provide: `;
+    prompt += `1. The Chinese characters (繁體字) `;
+    prompt += `2. Jyutping romanization for each character `;
+    prompt += `3. The tone number for each character `;
+    prompt += `Return the response as a JSON array with this structure: `;
+    prompt += `[{"phrase": "詞語", "characters": [{"char": "詞", "jyutping": "ci4", "tone": 4}, {"char": "語", "jyutping": "jyu5", "tone": 5}]}, ...] `;
+    prompt += `Only return valid JSON, no additional text.`;
 
     try {
-        // Attempt to fetch the CUHK Lexis page (may fail due to CORS)
-        const url = `https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/search.php?q=${encodeURIComponent(character)}`;
-        const response = await fetch(url, { mode: 'no-cors' });
-        // Note: no-cors mode limits what we can read, so this is mainly for reference
-        return { verified: false, note: 'CUHK Lexis verification requires manual check' };
+        const response = await fetch(DEEPSEEK_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.7,
+                max_tokens: 2000
+            })
+        }).catch(function (err) {
+            throw new Error('Network error: ' + (err && (err.message || err.name) ? err.message || err.name : String(err)));
+        });
+
+        if (!response.ok) {
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content.trim();
+
+        // Try to extract JSON from the response
+        let jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) {
+            // Try to find JSON object
+            jsonMatch = content.match(/\{[\s\S]*\}/);
+        }
+
+        if (jsonMatch) {
+            const phrases = JSON.parse(jsonMatch[0]);
+            return phrases;
+        } else {
+            console.warn('Could not parse JSON from API response:', content);
+            return [];
+        }
     } catch (error) {
-        return { verified: false, note: 'CUHK Lexis verification unavailable (CORS limitation)' };
+        console.error('Deepseek API error:', error);
+        throw error;
     }
 }
 
-// Enhanced tone verification with detailed checking
-function verifyToneAccuracy(phrase, expectedPattern) {
-    const expectedTones = expectedPattern.split(' ');
-    const verification = {
-        valid: true,
-        errors: [],
-        warnings: [],
-        verified: true
-    };
+// Handle form submission
+async function handleFormSubmit(event) {
+    event.preventDefault();
 
-    if (!phrase || !phrase.characters || !Array.isArray(phrase.characters)) {
-        verification.valid = false;
-        verification.errors.push('Invalid phrase structure');
-        return verification;
+    const inputDigits = document.getElementById('inputDigits');
+    if (!inputDigits) return;
+    const generateBtn = document.getElementById('generateBtn');
+    const btnText = generateBtn ? generateBtn.querySelector('.btn-text') : null;
+    const btnLoader = generateBtn ? generateBtn.querySelector('.btn-loader') : null;
+    const errorMessage = document.getElementById('errorMessage');
+    const resultsSection = document.getElementById('resultsSection');
+
+    const input = inputDigits.value.trim();
+
+    // Hide error message
+    if (errorMessage) {
+        errorMessage.style.display = 'none';
     }
 
-    const actualTones = phrase.characters.map((char, idx) => {
-        const tone = extractTone(char.jyutping || '');
-        if (!tone || tone === '') {
-            verification.valid = false;
-            verification.errors.push(`Character ${idx + 1} (${char.char}) has missing or invalid Jyutping: "${char.jyutping}"`);
+    // Check if it's 0243 page mode (lookup words from 0243.txt only)
+    // Accept 2 digits 0–9: 1＝3＝9, 4＝5＝8, 2＝6, 0＝0
+    const is0243Mode = inputDigits.classList.contains('mode-0243');
+    if (is0243Mode && /^[0-9]{2}$/.test(input)) {
+        const canonicalPattern = normalize0243Input(input);
+        if (!canonicalPattern) {
+            showError('請輸入兩個數字（0–9）。');
+            return;
         }
-        return tone;
-    });
-
-    // Check length
-    if (actualTones.length !== expectedTones.length) {
-        verification.valid = false;
-        verification.errors.push(`Phrase has ${actualTones.length} characters but pattern requires ${expectedTones.length}`);
-        return verification;
-    }
-
-    // Check each tone
-    actualTones.forEach((tone, idx) => {
-        const expectedTone = expectedTones[idx];
-        const char = phrase.characters[idx];
-
-        if (tone !== expectedTone) {
-            verification.valid = false;
-            verification.errors.push(
-                `Character ${idx + 1} "${char.char}": Jyutping "${char.jyutping}" has tone ${tone}, but pattern requires tone ${expectedTone}. ` +
-                `Please verify at https://humanum.arts.cuhk.edu.hk/Lexis/lexi-can/search.php?q=${encodeURIComponent(char.char)}`
-            );
+        if (btnText) btnText.style.display = 'none';
+        if (btnLoader) btnLoader.style.display = 'inline';
+        if (generateBtn) generateBtn.disabled = true;
+        try {
+            const words = await get0243WordsForPattern(canonicalPattern);
+            const result = {
+                input,
+                canonicalPattern,
+                input_length: 2,
+                from0243: true,
+                digit_mapping: digitToTones,
+                digit_to_canonical: digitToCanonical0243,
+                patterns: { '2-tone': [canonicalPattern] },
+                results: {
+                    '2-tone': {
+                        [canonicalPattern]: words.map(w => ({ phrase: w }))
+                    }
+                }
+            };
+            displayResults(result);
+            if (resultsSection) {
+                resultsSection.style.display = 'block';
+                document.body.classList.add('results-visible-0243');
+                resultsSection.scrollTop = 0;
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        } catch (err) {
+            console.error('0243 lookup error:', err);
+            showError(err && err.message ? err.message : '無法載入 0243 詞庫，請稍後再試。');
+        } finally {
+            if (btnText) btnText.style.display = 'inline';
+            if (btnLoader) btnLoader.style.display = 'none';
+            if (generateBtn) generateBtn.disabled = false;
         }
-    });
-
-    // Add verification note
-    if (verification.errors.length > 0) {
-        verification.verified = false;
+        return;
+    }
+    if (is0243Mode) {
+        showError('請輸入兩個數字（0–9）。 1＝3＝9，4＝5＝8，2＝6，0＝0。');
+        return;
     }
 
-    return verification;
-}
+    // Check if it's topic mode
+    const isTopicMode = inputDigits.classList.contains('topic-mode');
+    let topic = null;
+    let actualInput = input;
 
-// Validate if a phrase's tones match any of the expected patterns
-function validatePhraseTones(phrase, expectedPatterns) {
-    const phraseTones = phrase.characters.map(char => extractTone(char.jyutping)).join(' ');
-    return expectedPatterns.includes(phraseTones);
+    if (isTopicMode) {
+        topic = input;
+        if (!topic) {
+            showError('Please select or enter a topic.');
+            return;
+        }
+        // For topic mode, use a default pattern (e.g., "23" for 2-tone)
+        // If user entered digits, use those; otherwise use default
+        if (/^[0234]{2,3}$/.test(input)) {
+            actualInput = input;
+        } else {
+            actualInput = '23'; // Default 2-tone pattern for topic mode
+        }
+    } else {
+        // Allow 2 digits 0–9 (normalized to 0,2,3,4) or 2–3 digits 0,2,3,4
+        if (/^[0-9]{2}$/.test(actualInput)) {
+            const canonical = normalize0243Input(actualInput);
+            if (canonical) actualInput = canonical;
+            else {
+                showError('Please enter 2 digits from 0–9.');
+                return;
+            }
+        } else if (!/^[0234]{2,3}$/.test(actualInput)) {
+            showError('Please enter 2 digits (0–9) or 2–3 digits (0, 2, 3, 4).');
+            return;
+        }
+    }
+
+    // Show loading state
+    if (btnText) btnText.style.display = 'none';
+    if (btnLoader) btnLoader.style.display = 'inline';
+    if (generateBtn) generateBtn.disabled = true;
+
+    try {
+        // Check cache first (use actualInput for caching, but include topic in result)
+        let result = await getCachedResult(actualInput);
+
+        if (!result || (topic && result.topic !== topic)) {
+            // Generate tone patterns
+            const patterns = generateTonePatterns(actualInput);
+
+            // Create result structure
+            result = {
+                input: actualInput,
+                input_length: actualInput.length,
+                digit_mapping: digitToTones,
+                patterns: {
+                    [`${actualInput.length}-tone`]: patterns
+                },
+                results: {
+                    [`${actualInput.length}-tone`]: {}
+                },
+                topic: topic,
+                original_input: isTopicMode ? input : null
+            };
+
+            // Generate phrases for each pattern
+            const patternKey = `${actualInput.length}-tone`;
+            for (const pattern of patterns) {
+                try {
+                    const phrases = await generatePhrasesWithDeepseek(pattern, topic, 5);
+                    result.results[patternKey][pattern] = phrases;
+                } catch (error) {
+                    console.error(`Error generating phrases for pattern ${pattern}:`, error);
+                    result.results[patternKey][pattern] = [];
+                }
+            }
+
+            // Save to cache (use actualInput as key, but include topic in cache)
+            await saveToCache(actualInput, result);
+        }
+
+        // Display results
+        displayResults(result);
+
+        // Show results section and scroll to top of results
+        if (resultsSection) {
+            resultsSection.style.display = 'block';
+            resultsSection.scrollTop = 0;
+            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+    } catch (error) {
+        console.error('Error generating lyrics:', error);
+        showError('Failed to generate lyrics. Please check your API key and try again.');
+    } finally {
+        // Reset button state
+        if (btnText) btnText.style.display = 'inline';
+        if (btnLoader) btnLoader.style.display = 'none';
+        if (generateBtn) generateBtn.disabled = false;
+    }
 }
 
 // Display results
-function displayResults(responseData, fromCache = false) {
-    if (!resultsContainer || !resultsSection || !jsonOutput || !jsonContent) {
-        console.error('Display elements not initialized');
-        return;
-    }
-
-    // Store current response data for deletion operations
-    window.currentResponseData = responseData;
-
-    // Show/hide regenerate button based on cache status
-    if (regenerateBtn) {
-        // Always show regenerate button when results are displayed
-        // This allows users to regenerate if they find mistakes
-        regenerateBtn.style.display = 'inline-block';
-    }
-
-    // Show download cache button when results are displayed
-    if (downloadCacheBtn) {
-        downloadCacheBtn.style.display = 'inline-block';
-    }
-
-    // Show bulk selection buttons
-    if (selectAllBtn) {
-        selectAllBtn.style.display = 'inline-block';
-    }
-    if (deleteSelectedBtn) {
-        deleteSelectedBtn.style.display = 'inline-block';
-    }
-
-    // Reset selected count
-    window.selectedPhrases = new Set();
-    updateSelectedCount();
+function displayResults(result) {
+    const resultsContainer = document.getElementById('resultsContainer');
+    if (!resultsContainer) return;
 
     resultsContainer.innerHTML = '';
 
-    const patternType = Object.keys(responseData.patterns)[0];
-    const patterns = responseData.patterns[patternType];
-    const results = responseData.results[patternType];
+    const patternKey = `${result.input_length}-tone`;
+    const patterns = result.patterns[patternKey] || [];
+    const results = result.results[patternKey] || {};
 
-    // Display input info
-    const infoDiv = document.createElement('div');
-    infoDiv.className = 'input-info';
-    infoDiv.innerHTML = `
-        <h3>Input: <code>${responseData.input}</code></h3>
-        <p><strong>Length:</strong> ${responseData.input_length} digits</p>
-    `;
-    resultsContainer.appendChild(infoDiv);
+    const wordsOnly = result.from0243 === true;
 
-    // Display patterns
-    const patternsDiv = document.createElement('div');
-    patternsDiv.className = 'patterns-section';
-    patternsDiv.innerHTML = `
-        <h3>Tone Patterns (${patterns.length} total)</h3>
-        <div class="patterns-list">${patterns.map(p => `<span class="pattern-tag">${p}</span>`).join('')}</div>
-    `;
-    resultsContainer.appendChild(patternsDiv);
-
-    // Collect all unique phrases (deduplicate by phrase text)
-    // Also track which patterns each phrase appears in
-    const uniquePhrases = new Map();
-    const phraseToPatterns = new Map(); // Track which patterns contain each phrase
-
-    Object.keys(results).forEach(pattern => {
-        // Skip error entries
-        if (pattern.endsWith('_error')) {
-            return;
-        }
-
-        const phrases = results[pattern];
-        if (!phrases || !Array.isArray(phrases) || phrases.length === 0) {
-            return;
-        }
-
-        phrases.forEach(phrase => {
-            const phraseText = phrase.phrase;
-            // Track which patterns contain this phrase
-            if (!phraseToPatterns.has(phraseText)) {
-                phraseToPatterns.set(phraseText, []);
-            }
-            phraseToPatterns.get(phraseText).push(pattern);
-
-            // Only add if not already in map (deduplication)
-            if (!uniquePhrases.has(phraseText)) {
-                uniquePhrases.set(phraseText, phrase);
-            }
-        });
-    });
-
-    // Display unique results as inline boxes
-    const resultsDiv = document.createElement('div');
-    resultsDiv.className = 'lyrics-section';
-
-    // Validate phrases and count invalid ones
-    let invalidCount = 0;
-    uniquePhrases.forEach((phrase, phraseText) => {
-        // Check if phrase is marked as invalid or doesn't match tones
-        if (phrase._isInvalid || !validatePhraseTones(phrase, patterns)) {
-            invalidCount++;
-        }
-    });
-
-    const validationStatus = invalidCount > 0
-        ? `<span class="validation-badge invalid">⚠️ ${invalidCount} invalid</span>`
-        : `<span class="validation-badge valid">✓ All valid</span>`;
-
-    resultsDiv.innerHTML = `<h3>Generated Lyrics <span class="count-badge">${uniquePhrases.size} unique</span> ${validationStatus}</h3>`;
-
-    const resultsGrid = document.createElement('div');
-    resultsGrid.className = 'results-grid';
-
-    // Convert Map to array for pagination
-    const allPhrases = Array.from(uniquePhrases.entries()).map(([phraseText, phrase]) => ({
-        phraseText,
-        phrase
-    }));
-
-    // Sort phrases: valid ones first, then invalid ones
-    allPhrases.sort((a, b) => {
-        const aValid = !a.phrase._isInvalid && validatePhraseTones(a.phrase, patterns);
-        const bValid = !b.phrase._isInvalid && validatePhraseTones(b.phrase, patterns);
-        if (aValid === bValid) return 0;
-        return aValid ? -1 : 1;
-    });
-
-    // Pagination: show first 20 results
-    const RESULTS_PER_PAGE = 20;
-    let displayedCount = Math.min(RESULTS_PER_PAGE, allPhrases.length);
-    window.currentPhrasesArray = allPhrases;
-    window.displayedPhrasesCount = displayedCount;
-
-    // Function to create a phrase box
-    function createPhraseBox(phraseText, phrase) {
-        const phraseBox = document.createElement('div');
-        phraseBox.className = 'phrase-box';
-        phraseBox.dataset.phrase = phraseText; // Store phrase text for deletion
-
-        // Build tone pattern string from characters
-        const tonePattern = phrase.characters.map(char => extractTone(char.jyutping)).join(' ');
-        const jyutpingPattern = phrase.characters.map(char => char.jyutping).join(' ');
-
-        // Validate tones - check both _isInvalid flag and tone matching
-        const isInvalidFlag = phrase._isInvalid === true;
-        const isValidTones = validatePhraseTones(phrase, patterns);
-        const isValid = !isInvalidFlag && isValidTones;
-
-        if (!isValid) {
-            phraseBox.classList.add('invalid-tone');
-        }
-
-        // Build warning message for invalid phrases
-        let warningMessage = '';
-        if (isInvalidFlag) {
-            const reason = phrase._invalidReason || 'Invalid';
-            const expected = phrase._expectedTones ? `Expected: [${phrase._expectedTones.join(' ')}]` : '';
-            const actual = phrase._actualTones ? `Actual: [${phrase._actualTones.join(' ')}]` : '';
-            warningMessage = `<span class="invalid-indicator">⚠️ ${reason} ${expected} ${actual}</span>`;
-        } else if (!isValidTones) {
-            warningMessage = '<span class="invalid-indicator">⚠️ Invalid tones</span>';
-        }
-
-        phraseBox.innerHTML = `
-            <input type="checkbox" class="phrase-checkbox" data-phrase="${phraseText}" ${isValid ? '' : 'checked'}>
-            <button class="delete-phrase-btn" title="Delete this phrase" aria-label="Delete ${phraseText}">×</button>
-            <div class="phrase-word">${phrase.phrase}</div>
-            <div class="phrase-info">
-                <span class="tone-badge ${isValid ? '' : 'invalid-tone-badge'}">Tone: ${tonePattern}</span>
-                <span class="jyutping-badge">${jyutpingPattern}</span>
-                ${warningMessage}
-            </div>
-        `;
-
-        // Add checkbox event listener
-        const checkbox = phraseBox.querySelector('.phrase-checkbox');
-        checkbox.addEventListener('change', (e) => {
-            const phrase = e.target.dataset.phrase;
-            if (e.target.checked) {
-                window.selectedPhrases.add(phrase);
-            } else {
-                window.selectedPhrases.delete(phrase);
-            }
-            updateSelectedCount();
-        });
-
-        // Auto-select invalid phrases
-        if (!isValid) {
-            checkbox.checked = true;
-            window.selectedPhrases.add(phraseText);
-            updateSelectedCount();
-        }
-
-        // Add delete button event listener
-        const deleteBtn = phraseBox.querySelector('.delete-phrase-btn');
-        deleteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deletePhrase(phraseText, phraseToPatterns.get(phraseText));
-        });
-
-        return phraseBox;
-    }
-
-    // Display first batch of phrases
-    for (let i = 0; i < displayedCount; i++) {
-        const { phraseText, phrase } = allPhrases[i];
-        const phraseBox = createPhraseBox(phraseText, phrase);
-        resultsGrid.appendChild(phraseBox);
-    }
-
-    resultsDiv.appendChild(resultsGrid);
-
-    // Add "Load More" button if there are more results
-    if (allPhrases.length > displayedCount) {
-        const loadMoreBtn = document.createElement('button');
-        loadMoreBtn.className = 'load-more-btn';
-        loadMoreBtn.textContent = `Load More (${allPhrases.length - displayedCount} remaining)`;
-        loadMoreBtn.addEventListener('click', () => {
-            const remaining = allPhrases.length - window.displayedPhrasesCount;
-            const toShow = Math.min(RESULTS_PER_PAGE, remaining);
-
-            for (let i = window.displayedPhrasesCount; i < window.displayedPhrasesCount + toShow; i++) {
-                const { phraseText, phrase } = allPhrases[i];
-                const phraseBox = createPhraseBox(phraseText, phrase);
-                resultsGrid.appendChild(phraseBox);
-            }
-
-            window.displayedPhrasesCount += toShow;
-
-            // Update button text or remove if all shown
-            if (window.displayedPhrasesCount >= allPhrases.length) {
-                loadMoreBtn.remove();
-            } else {
-                loadMoreBtn.textContent = `Load More (${allPhrases.length - window.displayedPhrasesCount} remaining)`;
-            }
-        });
-
-        const loadMoreContainer = document.createElement('div');
-        loadMoreContainer.className = 'load-more-container';
-        loadMoreContainer.style.textAlign = 'center';
-        loadMoreContainer.style.marginTop = '20px';
-        loadMoreContainer.appendChild(loadMoreBtn);
-        resultsDiv.appendChild(loadMoreContainer);
-    }
-
-    resultsContainer.appendChild(resultsDiv);
-
-    // Display JSON (collapsed by default)
-    jsonContent.textContent = JSON.stringify(responseData, null, 2);
-
-    resultsSection.style.display = 'block';
-    jsonOutput.style.display = 'block';
-
-    // Ensure JSON is collapsed by default
-    if (jsonOutput && !jsonOutput.classList.contains('collapsed')) {
-        jsonOutput.classList.add('collapsed');
-    }
-
-    // Reset view JSON button text
-    if (viewJsonBtn) {
-        viewJsonBtn.textContent = 'View JSON';
-    }
-
-    // Reset regenerate button text
-    if (regenerateBtn) {
-        regenerateBtn.textContent = '🔄 Regenerate';
-        regenerateBtn.disabled = false;
-    }
-}
-
-// Delete a phrase from the cache
-function deletePhrase(phraseText, patterns) {
-    if (!confirm(`Delete "${phraseText}" from all patterns?`)) {
-        return;
-    }
-
-    if (!window.currentResponseData) {
-        console.error('No current response data available');
-        return;
-    }
-
-    const responseData = window.currentResponseData;
-    const patternType = Object.keys(responseData.patterns)[0];
-    const results = responseData.results[patternType];
-
-    // Remove phrase from selectedPhrases if it was selected
-    if (window.selectedPhrases && window.selectedPhrases.has(phraseText)) {
-        window.selectedPhrases.delete(phraseText);
-        updateSelectedCount();
-    }
-
-    // Remove phrase from all patterns where it appears
-    let deleted = false;
     patterns.forEach(pattern => {
-        if (results[pattern] && Array.isArray(results[pattern])) {
-            const originalLength = results[pattern].length;
-            results[pattern] = results[pattern].filter(phrase => phrase.phrase !== phraseText);
-            if (results[pattern].length < originalLength) {
-                deleted = true;
-            }
-            // Remove empty pattern arrays
-            if (results[pattern].length === 0) {
-                delete results[pattern];
-            }
+        const phrases = results[pattern] || [];
+
+        const patternDiv = document.createElement('div');
+        patternDiv.className = 'pattern-group';
+
+        const patternHeader = document.createElement('div');
+        patternHeader.className = 'pattern-header';
+        let headerHtml = `<h3>${wordsOnly ? pattern : 'Tone Pattern: ' + pattern}</h3>`;
+        if (wordsOnly && result.canonicalPattern && result.input && result.input !== result.canonicalPattern) {
+            headerHtml += `<p class="pattern-mapping-hint">你輸入 ${result.input} → 對應 ${result.canonicalPattern}</p>`;
         }
+        patternHeader.innerHTML = headerHtml;
+        patternDiv.appendChild(patternHeader);
+
+        if (phrases.length === 0) {
+            const noResults = document.createElement('p');
+            noResults.className = 'no-results';
+            noResults.textContent = wordsOnly ? '沒有此組合的詞彙。' : 'No phrases generated for this pattern.';
+            patternDiv.appendChild(noResults);
+        } else {
+            const phrasesList = document.createElement('div');
+            phrasesList.className = 'phrases-list';
+
+            phrases.forEach(phraseData => {
+                const phraseDiv = document.createElement('div');
+                phraseDiv.className = 'phrase-box';
+
+                const phraseWord = document.createElement('div');
+                phraseWord.className = 'phrase-word';
+                phraseWord.textContent = phraseData.phrase || '';
+                phraseDiv.appendChild(phraseWord);
+
+                // 0243 mode: show only words (no pinyin / tone)
+                if (!wordsOnly && phraseData.characters) {
+                    const phraseInfo = document.createElement('div');
+                    phraseInfo.className = 'phrase-info';
+
+                    const jyutping = document.createElement('span');
+                    jyutping.className = 'jyutping-badge';
+                    jyutping.textContent = phraseData.characters.map(c => c.jyutping).join(' ');
+                    phraseInfo.appendChild(jyutping);
+
+                    phraseDiv.appendChild(phraseInfo);
+                }
+
+                phrasesList.appendChild(phraseDiv);
+            });
+
+            patternDiv.appendChild(phrasesList);
+        }
+
+        resultsContainer.appendChild(patternDiv);
     });
 
-    // Clean up empty pattern objects
-    const patternKeys = Object.keys(results);
-    if (patternKeys.length === 0) {
-        // If no patterns left, clean up the entire results structure
-        delete responseData.results[patternType];
-    }
+    // Store current result for regenerate
+    window.currentResult = result;
 
-    if (deleted) {
-        // Update cache (both in-memory and localStorage)
-        saveToCache(responseData.input, responseData);
+    // Update JSON output
+    updateJsonOutput(result);
+}
 
-        // Re-display results
-        displayResults(responseData, true);
-
-        console.log(`✓ Deleted "${phraseText}" completely from cache`);
-    } else {
-        console.warn(`Phrase "${phraseText}" not found in cache`);
+// Update JSON output
+function updateJsonOutput(result) {
+    const jsonContent = document.getElementById('jsonContent');
+    if (jsonContent) {
+        jsonContent.textContent = JSON.stringify(result, null, 2);
     }
 }
 
-// Show error
+// Toggle JSON output visibility
+function toggleJsonOutput() {
+    const jsonOutput = document.getElementById('jsonOutput');
+    if (jsonOutput) {
+        const isCollapsed = jsonOutput.classList.contains('collapsed');
+        jsonOutput.style.display = isCollapsed ? 'block' : 'none';
+        jsonOutput.classList.toggle('collapsed');
+    }
+}
+
+// Enable JSON editing
+function enableJsonEdit() {
+    const jsonContent = document.getElementById('jsonContent');
+    const jsonEditContainer = document.getElementById('jsonEditContainer');
+    const jsonEditActions = document.getElementById('jsonEditActions');
+    const editJsonBtn = document.getElementById('editJsonBtn');
+
+    if (!jsonContent || !jsonEditContainer || !jsonEditActions) return;
+
+    // Store original content
+    const originalJson = jsonContent.textContent;
+
+    // Create textarea for editing
+    const textarea = document.createElement('textarea');
+    textarea.id = 'jsonContentEdit';
+    textarea.value = originalJson;
+    textarea.style.width = '100%';
+    textarea.style.minHeight = '400px';
+    textarea.style.fontFamily = 'monospace';
+    textarea.style.fontSize = '0.9em';
+    textarea.style.padding = '20px';
+    textarea.style.border = '1px solid #e0e0e0';
+    textarea.style.borderRadius = '10px';
+    textarea.style.backgroundColor = '#f8f8f8';
+    textarea.style.color = '#333';
+    textarea.style.resize = 'vertical';
+
+    // Hide pre and show textarea
+    jsonContent.style.display = 'none';
+    jsonEditContainer.appendChild(textarea);
+
+    // Show edit actions and hide edit button
+    jsonEditActions.style.display = 'flex';
+    if (editJsonBtn) {
+        editJsonBtn.style.display = 'none';
+    }
+
+    // Store original JSON for cancel
+    window.originalJsonContent = originalJson;
+}
+
+// Save JSON edit
+async function saveJsonEdit() {
+    const textarea = document.getElementById('jsonContentEdit');
+    const jsonContent = document.getElementById('jsonContent');
+    const jsonEditContainer = document.getElementById('jsonEditContainer');
+    const jsonEditActions = document.getElementById('jsonEditActions');
+    const editJsonBtn = document.getElementById('editJsonBtn');
+
+    if (!textarea || !jsonContent) return;
+
+    try {
+        // Parse and validate JSON
+        const editedJson = JSON.parse(textarea.value);
+
+        // Update the current result
+        if (window.currentResult) {
+            Object.assign(window.currentResult, editedJson);
+        }
+
+        // Get input key for Firebase
+        const inputKey = (window.currentResult && window.currentResult.input) || 'default';
+
+        // Update cache if needed (this will also save to Firebase)
+        let firebaseSaved = false;
+        if (window.currentResult && window.currentResult.input) {
+            await saveToCache(window.currentResult.input, window.currentResult);
+            firebaseSaved = true; // saveToCache includes Firebase save
+        } else {
+            // If no current result, save directly to Firebase
+            firebaseSaved = await saveJsonToFirebase(editedJson, inputKey);
+        }
+
+        // Update displayed results
+        if (window.currentResult) {
+            displayResults(window.currentResult);
+        }
+
+        // Update JSON content
+        jsonContent.textContent = JSON.stringify(editedJson, null, 2);
+
+        // Remove textarea and show pre
+        textarea.remove();
+        jsonContent.style.display = 'block';
+
+        // Hide edit actions and show edit button
+        jsonEditActions.style.display = 'none';
+        if (editJsonBtn) {
+            editJsonBtn.style.display = 'inline-block';
+        }
+
+        // Clear stored original
+        delete window.originalJsonContent;
+
+        const message = firebaseSaved
+            ? 'JSON updated successfully and saved to Firebase! ✓'
+            : 'JSON updated successfully! (Firebase save failed - check console)';
+        alert(message);
+    } catch (error) {
+        alert('Invalid JSON format. Please check your syntax.\n\nError: ' + error.message);
+    }
+}
+
+// Cancel JSON edit
+function cancelJsonEdit() {
+    const textarea = document.getElementById('jsonContentEdit');
+    const jsonContent = document.getElementById('jsonContent');
+    const jsonEditContainer = document.getElementById('jsonEditContainer');
+    const jsonEditActions = document.getElementById('jsonEditActions');
+    const editJsonBtn = document.getElementById('editJsonBtn');
+
+    if (!jsonContent || !jsonEditContainer) return;
+
+    // Remove textarea
+    if (textarea) {
+        textarea.remove();
+    }
+
+    // Show pre
+    jsonContent.style.display = 'block';
+
+    // Hide edit actions and show edit button
+    jsonEditActions.style.display = 'none';
+    if (editJsonBtn) {
+        editJsonBtn.style.display = 'inline-block';
+    }
+
+    // Clear stored original
+    delete window.originalJsonContent;
+}
+
+// Show error message
 function showError(message) {
+    const errorMessage = document.getElementById('errorMessage');
     if (errorMessage) {
         errorMessage.textContent = message;
         errorMessage.style.display = 'block';
     }
-    if (resultsSection) {
-        resultsSection.style.display = 'none';
-    }
-    if (jsonOutput) {
-        jsonOutput.style.display = 'none';
-    }
-    // Hide regenerate button when error occurs
-    if (regenerateBtn) {
-        regenerateBtn.style.display = 'none';
-    }
-    // Hide download cache button when error occurs
-    if (downloadCacheBtn) {
-        downloadCacheBtn.style.display = 'none';
-    }
-    // Hide bulk selection buttons when error occurs
-    if (selectAllBtn) {
-        selectAllBtn.style.display = 'none';
-    }
-    if (deleteSelectedBtn) {
-        deleteSelectedBtn.style.display = 'none';
-    }
-    // Also log to console
-    console.error(message);
 }
 
-// Hide error
-function hideError() {
-    if (errorMessage) {
-        errorMessage.style.display = 'none';
+// Setup regenerate modal
+function setupRegenerateModal() {
+    const regenerateBtn = document.getElementById('regenerateBtn');
+    const modal = document.getElementById('regenerateModal');
+    const modalClose = modal?.querySelector('.modal-close');
+    const cancelBtn = document.getElementById('cancelRegenerateBtn');
+    const submitBtn = document.getElementById('submitRegenerateBtn');
+    const selectAllBtn = document.getElementById('selectAllPatternsBtn');
+    const deselectAllBtn = document.getElementById('deselectAllPatternsBtn');
+
+    if (regenerateBtn && modal) {
+        regenerateBtn.addEventListener('click', openRegenerateModal);
+    }
+
+    if (modalClose) {
+        modalClose.addEventListener('click', closeRegenerateModal);
+    }
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', closeRegenerateModal);
+    }
+
+    if (submitBtn) {
+        submitBtn.addEventListener('click', handleRegenerate);
+    }
+
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            const checkboxes = modal.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = true);
+        });
+    }
+
+    if (deselectAllBtn) {
+        deselectAllBtn.addEventListener('click', () => {
+            const checkboxes = modal.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = false);
+        });
+    }
+
+    // Close on overlay click
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeRegenerateModal();
+            }
+        });
+    }
+}
+
+// Open regenerate modal
+function openRegenerateModal() {
+    const modal = document.getElementById('regenerateModal');
+    const container = document.getElementById('patternsCheckboxContainer');
+
+    if (!modal || !window.currentResult) return;
+
+    const patternKey = `${window.currentResult.input_length}-tone`;
+    const patterns = window.currentResult.patterns[patternKey] || [];
+
+    container.innerHTML = '';
+
+    patterns.forEach(pattern => {
+        const label = document.createElement('label');
+        label.className = 'pattern-checkbox-label';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = pattern;
+        checkbox.checked = true;
+
+        const span = document.createElement('span');
+        span.textContent = pattern;
+
+        label.appendChild(checkbox);
+        label.appendChild(span);
+        container.appendChild(label);
+    });
+
+    modal.style.display = 'flex';
+}
+
+// Close regenerate modal
+function closeRegenerateModal() {
+    const modal = document.getElementById('regenerateModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Handle regenerate
+async function handleRegenerate() {
+    const modal = document.getElementById('regenerateModal');
+    const phraseCountInput = document.getElementById('phraseCountInput');
+    const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
+
+    if (!window.currentResult || checkboxes.length === 0) return;
+
+    const phraseCount = parseInt(phraseCountInput.value) || 2;
+    const selectedPatterns = Array.from(checkboxes).map(cb => cb.value);
+    const patternKey = `${window.currentResult.input_length}-tone`;
+    const topic = window.currentResult.topic || null;
+
+    closeRegenerateModal();
+
+    // Show loading
+    const generateBtn = document.getElementById('generateBtn');
+    const btnText = generateBtn.querySelector('.btn-text');
+    const btnLoader = generateBtn.querySelector('.btn-loader');
+    btnText.style.display = 'none';
+    btnLoader.style.display = 'inline';
+    generateBtn.disabled = true;
+
+    try {
+        // Regenerate phrases for selected patterns
+        for (const pattern of selectedPatterns) {
+            try {
+                const phrases = await generatePhrasesWithDeepseek(pattern, topic, phraseCount);
+                window.currentResult.results[patternKey][pattern] = phrases;
+            } catch (error) {
+                console.error(`Error regenerating pattern ${pattern}:`, error);
+            }
+        }
+
+        // Update cache
+        await saveToCache(window.currentResult.input, window.currentResult);
+
+        // Redisplay results
+        displayResults(window.currentResult);
+
+    } catch (error) {
+        console.error('Error regenerating lyrics:', error);
+        showError('Failed to regenerate lyrics. Please try again.');
+    } finally {
+        btnText.style.display = 'inline';
+        btnLoader.style.display = 'none';
+        generateBtn.disabled = false;
+    }
+}
+
+// Update cache file (download functionality)
+function updateCacheFile() {
+    // This would typically require a backend endpoint
+    // For now, we'll just download the cache
+    downloadCache();
+}
+
+// Download cache
+function downloadCache() {
+    const cacheData = { ...memoryCache, ...lyricsCacheData };
+    const blob = new Blob([JSON.stringify(cacheData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'lyrics-cache.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// My Lyrics Sliding Panel Functions – multiple files (per-user when logged in)
+const MY_LYRICS_STORAGE_KEY_PREFIX = 'myLyricsFiles_';
+const MY_LYRICS_LEGACY_KEY = 'myLyrics';
+
+function getMyLyricsStorageKey() {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    return user ? MY_LYRICS_STORAGE_KEY_PREFIX + user.uid : MY_LYRICS_STORAGE_KEY_PREFIX + 'anonymous';
+}
+
+function getMyLyricsData() {
+    try {
+        var key = getMyLyricsStorageKey();
+        const raw = localStorage.getItem(key);
+        if (raw) {
+            const data = JSON.parse(raw);
+            if (data && data.files && typeof data.files === 'object') return data;
+        }
+        // Migrate from legacy single lyric (only for same key)
+        const legacy = localStorage.getItem(MY_LYRICS_LEGACY_KEY);
+        const id = 'file_' + Date.now();
+        const files = {};
+        files[id] = {
+            name: '我的歌詞',
+            content: legacy || '',
+            updatedAt: new Date().toISOString()
+        };
+        const out = { files, currentId: id };
+        localStorage.setItem(key, JSON.stringify(out));
+        if (key === MY_LYRICS_STORAGE_KEY_PREFIX + 'anonymous' && localStorage.getItem(MY_LYRICS_LEGACY_KEY)) {
+            localStorage.removeItem(MY_LYRICS_LEGACY_KEY);
+            if (localStorage.getItem('myLyricsUpdatedAt')) localStorage.removeItem('myLyricsUpdatedAt');
+        }
+        return out;
+    } catch (e) {
+        return { files: {}, currentId: null };
+    }
+}
+
+function setMyLyricsData(data) {
+    try {
+        localStorage.setItem(getMyLyricsStorageKey(), JSON.stringify(data));
+    } catch (e) {
+        console.warn('Error saving myLyrics data', e);
+    }
+}
+
+function renderMyLyricsFileList() {
+    const data = getMyLyricsData();
+    const listEl = document.getElementById('lyricsFileList');
+    const nameInput = document.getElementById('lyricsFileNameInput');
+    const lyricsTextarea = document.getElementById('lyricsTextarea');
+    const dropdownLabel = document.getElementById('lyricsFileDropdownLabel');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+    const ids = Object.keys(data.files || {});
+    ids.forEach(function (id) {
+        const file = data.files[id];
+        const li = document.createElement('li');
+        li.textContent = file.name || '未命名';
+        li.dataset.fileId = id;
+        if (id === data.currentId) li.classList.add('active');
+        li.addEventListener('click', function () {
+            selectMyLyricsFile(id);
+            closeLyricsFileDropdown();
+        });
+        listEl.appendChild(li);
+    });
+
+    if (dropdownLabel) {
+        dropdownLabel.textContent = (data.currentId && data.files[data.currentId])
+            ? (data.files[data.currentId].name || '未命名')
+            : '歌詞檔案';
+    }
+
+    if (data.currentId && data.files[data.currentId]) {
+        const cur = data.files[data.currentId];
+        if (nameInput) nameInput.value = cur.name || '';
+        if (nameInput) nameInput.disabled = false;
+        if (lyricsTextarea) lyricsTextarea.value = cur.content || '';
+        if (lyricsTextarea) lyricsTextarea.disabled = false;
+    } else {
+        if (nameInput) { nameInput.value = ''; nameInput.disabled = true; }
+        if (lyricsTextarea) { lyricsTextarea.value = ''; lyricsTextarea.disabled = true; }
+    }
+}
+
+function toggleLyricsFileDropdown() {
+    var el = document.getElementById('lyricsFileDropdown');
+    var header = document.getElementById('lyricsFileDropdownHeader');
+    if (el) el.classList.toggle('open');
+    if (header) header.setAttribute('aria-expanded', el && el.classList.contains('open') ? 'true' : 'false');
+}
+
+function closeLyricsFileDropdown() {
+    var el = document.getElementById('lyricsFileDropdown');
+    var header = document.getElementById('lyricsFileDropdownHeader');
+    if (el) el.classList.remove('open');
+    if (header) header.setAttribute('aria-expanded', 'false');
+}
+
+function selectMyLyricsFile(id) {
+    const data = getMyLyricsData();
+    if (!data.files[id]) return;
+    data.currentId = id;
+    setMyLyricsData(data);
+    renderMyLyricsFileList();
+}
+
+function addMyLyricsFile() {
+    const data = getMyLyricsData();
+    const id = 'file_' + Date.now();
+    const count = Object.keys(data.files).length + 1;
+    data.files[id] = { name: '新歌詞 ' + count, content: '', updatedAt: new Date().toISOString() };
+    data.currentId = id;
+    setMyLyricsData(data);
+    renderMyLyricsFileList();
+    const nameInput = document.getElementById('lyricsFileNameInput');
+    if (nameInput) nameInput.focus();
+}
+
+function saveCurrentFileContentFromUI() {
+    const data = getMyLyricsData();
+    const id = data.currentId;
+    const nameInput = document.getElementById('lyricsFileNameInput');
+    const lyricsTextarea = document.getElementById('lyricsTextarea');
+    if (!id || !data.files[id]) return;
+    data.files[id].name = (nameInput && nameInput.value.trim()) || data.files[id].name || '未命名';
+    data.files[id].content = lyricsTextarea ? lyricsTextarea.value : '';
+    data.files[id].updatedAt = new Date().toISOString();
+    setMyLyricsData(data);
+}
+
+function setupMyLyricsModal() {
+    const closeBtn = document.getElementById('closeMyLyricsBtn');
+    const closeModalBtn = document.getElementById('closeMyLyricsModal');
+    const saveToFirebaseBtn = document.getElementById('saveToFirebaseBtn');
+    const lyricsTextarea = document.getElementById('lyricsTextarea');
+    const addBtn = document.getElementById('addLyricsFileBtn');
+    const nameInput = document.getElementById('lyricsFileNameInput');
+    const dropdownHeader = document.getElementById('lyricsFileDropdownHeader');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeMyLyricsModal);
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeMyLyricsModal);
+    if (saveToFirebaseBtn) saveToFirebaseBtn.addEventListener('click', saveMyLyricsToFirebase);
+
+    if (dropdownHeader) dropdownHeader.addEventListener('click', toggleLyricsFileDropdown);
+
+    if (addBtn) addBtn.addEventListener('click', function () {
+        addMyLyricsFile();
+        closeLyricsFileDropdown();
+    });
+
+    if (nameInput) {
+        nameInput.addEventListener('change', function () {
+            saveCurrentFileContentFromUI();
+            renderMyLyricsFileList();
+        });
+        nameInput.addEventListener('blur', function () {
+            saveCurrentFileContentFromUI();
+            renderMyLyricsFileList();
+        });
+    }
+
+    if (lyricsTextarea) {
+        let saveTimeout;
+        lyricsTextarea.addEventListener('input', function () {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(function () {
+                saveCurrentFileContentFromUI();
+            }, 500);
+        });
+    }
+
+    // Split view: desktop = resize width via divider; mobile = resize height via divider
+    var divider = document.getElementById('splitViewDivider');
+    var panelContent = document.getElementById('lyricsPanelContent');
+    var splitView = document.getElementById('splitView');
+    if (divider && splitView) {
+        var minPanelWidth = 280;
+        var maxPanelWidth = Math.max(minPanelWidth, Math.floor(window.innerWidth * 0.9));
+        var minHeightVh = 20;
+        var maxHeightVh = 85;
+
+        function getPanelWidthPx() {
+            var v = splitView.style.getPropertyValue('--lyrics-pane-width');
+            if (v && v.endsWith('px')) return parseInt(v, 10);
+            return 420;
+        }
+
+        function setPanelWidthPx(px) {
+            var w = Math.min(maxPanelWidth, Math.max(minPanelWidth, px));
+            splitView.style.setProperty('--lyrics-pane-width', w + 'px');
+            try { localStorage.setItem('myLyricsPanelWidth', String(w)); } catch (e) { }
+        }
+
+        function getPanelHeightVh() {
+            var v = splitView.style.getPropertyValue('--lyrics-pane-height');
+            if (v && v.endsWith('vh')) return parseFloat(v);
+            return 50;
+        }
+
+        function setPanelHeightVh(vh) {
+            var h = Math.min(maxHeightVh, Math.max(minHeightVh, vh));
+            splitView.style.setProperty('--lyrics-pane-height', h + 'vh');
+            try { localStorage.setItem('myLyricsPanelHeightVh', String(h)); } catch (e) { }
+        }
+
+        function startResize(e) {
+            e.preventDefault();
+            var isMobile = window.innerWidth <= 768;
+            var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            if (isMobile) {
+                var startHeightVh = getPanelHeightVh();
+                var startY = clientY;
+
+                function onMove(ev) {
+                    var y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+                    var heightPx = window.innerHeight - y;
+                    var vh = (heightPx / window.innerHeight) * 100;
+                    setPanelHeightVh(vh);
+                }
+                function onUp() {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    document.removeEventListener('touchmove', onMove, { passive: false });
+                    document.removeEventListener('touchend', onUp);
+                }
+                onMove(e);
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onUp);
+            } else {
+                var startX = clientX;
+                var startWidth = getPanelWidthPx();
+                var maxW = Math.max(minPanelWidth, Math.floor(window.innerWidth * 0.9));
+
+                function onMove(ev) {
+                    var x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+                    var dx = x - startX;
+                    var w = Math.min(maxW, Math.max(minPanelWidth, startWidth - dx));
+                    splitView.style.setProperty('--lyrics-pane-width', w + 'px');
+                    try { localStorage.setItem('myLyricsPanelWidth', String(w)); } catch (err) { }
+                }
+                function onUp() {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                }
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            }
+        }
+
+        divider.addEventListener('mousedown', startResize);
+        divider.addEventListener('touchstart', startResize, { passive: false });
+    }
+
+    // Mobile: resizable height
+    var resizeHeightHandle = document.getElementById('lyricsPanelResizeHeight');
+    if (resizeHeightHandle && panelContent) {
+        var minVh = 30;
+        var maxVh = 95;
+        var startY, startHeightVh;
+
+        function getPanelHeightVh() {
+            var v = panelContent.style.getPropertyValue('--my-lyrics-panel-height');
+            if (v && v.endsWith('vh')) return parseFloat(v);
+            return 50;
+        }
+
+        function setPanelHeightVh(vh) {
+            var h = Math.min(maxVh, Math.max(minVh, vh));
+            panelContent.style.setProperty('--my-lyrics-panel-height', h + 'vh');
+            try { localStorage.setItem('myLyricsPanelHeightVh', String(h)); } catch (e) { }
+        }
+
+        function onResizeHeightMove(e) {
+            var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            var hPx = window.innerHeight - clientY;
+            var vh = (hPx / window.innerHeight) * 100;
+            setPanelHeightVh(vh);
+        }
+
+        function onResizeHeightEnd() {
+            document.removeEventListener('mousemove', onResizeHeightMove);
+            document.removeEventListener('mouseup', onResizeHeightEnd);
+            document.removeEventListener('touchmove', onResizeHeightMove, { passive: false });
+            document.removeEventListener('touchend', onResizeHeightEnd);
+        }
+
+        function startResizeHeight(e) {
+            e.preventDefault();
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            startHeightVh = getPanelHeightVh();
+            onResizeHeightMove(e);
+            document.addEventListener('mousemove', onResizeHeightMove);
+            document.addEventListener('mouseup', onResizeHeightEnd);
+            document.addEventListener('touchmove', onResizeHeightMove, { passive: false });
+            document.addEventListener('touchend', onResizeHeightEnd);
+        }
+
+        resizeHeightHandle.addEventListener('mousedown', startResizeHeight);
+        resizeHeightHandle.addEventListener('touchstart', startResizeHeight, { passive: false });
+    }
+}
+
+function restoreMyLyricsPanelSize() {
+    var panelContent = document.getElementById('lyricsPanelContent');
+    var splitView = document.getElementById('splitView');
+    if (!splitView) return;
+    try {
+        if (window.innerWidth <= 768) {
+            var vh = localStorage.getItem('myLyricsPanelHeightVh');
+            if (vh) {
+                var h = parseFloat(vh);
+                if (h >= 20 && h <= 85) {
+                    splitView.style.setProperty('--lyrics-pane-height', h + 'vh');
+                }
+            }
+        } else {
+            var w = localStorage.getItem('myLyricsPanelWidth');
+            if (w) {
+                var px = parseInt(w, 10);
+                if (px >= 280 && px <= 0.9 * window.innerWidth) {
+                    splitView.style.setProperty('--lyrics-pane-width', px + 'px');
+                }
+            }
+        }
+    } catch (e) { }
+}
+
+async function openMyLyricsModal() {
+    const splitView = document.getElementById('splitView');
+    const lyricsTextarea = document.getElementById('lyricsTextarea');
+
+    if (!splitView || !lyricsTextarea) return;
+
+    // Only logged-in users can access 我的歌詞
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) {
+        if (typeof window.openLoginPanel === 'function') {
+            window.openLoginPanel();
+        }
+        alert('請先登入才能使用「我的歌詞」。');
+        return;
+    }
+
+    loadMyLyricsFromLocalStorage();
+    await loadMyLyricsFromFirebase();
+
+    var data = getMyLyricsData();
+    if (Object.keys(data.files || {}).length === 0) {
+        addMyLyricsFile();
+    } else if (!data.currentId) {
+        var firstId = Object.keys(data.files)[0];
+        data.currentId = firstId;
+        setMyLyricsData(data);
+    }
+    renderMyLyricsFileList();
+    closeLyricsFileDropdown();
+
+    restoreMyLyricsPanelSize();
+    splitView.classList.add('lyrics-open');
+    document.body.style.overflow = 'hidden';
+
+    setTimeout(function () {
+        lyricsTextarea.focus();
+    }, 200);
+}
+
+function closeMyLyricsModal() {
+    const splitView = document.getElementById('splitView');
+    if (splitView) {
+        splitView.classList.remove('lyrics-open');
+        document.body.style.overflow = '';
+    }
+}
+
+function loadMyLyricsFromLocalStorage() {
+    getMyLyricsData(); // ensures migration from legacy single lyric if needed
+    console.log('✓ Loaded lyrics from localStorage');
+}
+
+async function loadMyLyricsFromFirebase() {
+    try {
+        var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+        if (!user || !window.firebaseDb) {
+            if (!user) console.log('Not logged in, skipping Firebase lyrics load');
+            else console.log('Firebase not initialized, skipping Firebase load');
+            return;
+        }
+        var db = window.firebaseDb;
+        var docRef = db.collection('userLyrics').doc(user.uid);
+        var docSnap = await docRef.get();
+        if (!docSnap.exists()) {
+            console.log('No lyrics found in Firebase for this user');
+            return;
+        }
+        var data = docSnap.data();
+        var firebaseFiles = data.files;
+        var firebaseUpdatedAt = data.updatedAt || '';
+        if (!firebaseFiles || typeof firebaseFiles !== 'object') {
+            var legacy = data.lyrics;
+            if (legacy) {
+                var local = getMyLyricsData();
+                var id = 'file_' + Date.now();
+                local.files = local.files || {};
+                local.files[id] = { name: '我的歌詞', content: legacy, updatedAt: firebaseUpdatedAt };
+                if (!local.currentId) local.currentId = id;
+                setMyLyricsData(local);
+                console.log('✓ Migrated single lyric from Firebase to files');
+            }
+            return;
+        }
+        var local = getMyLyricsData();
+        var localUpdated = local.files && Object.keys(local.files).length ? Object.values(local.files).reduce(function (max, f) { return (f.updatedAt > max) ? f.updatedAt : max; }, '') : '';
+        if (firebaseUpdatedAt > localUpdated) {
+            local.files = firebaseFiles;
+            var ids = Object.keys(firebaseFiles);
+            if (!ids.length) local.currentId = null;
+            else if (!local.currentId || !firebaseFiles[local.currentId]) local.currentId = ids[0];
+            setMyLyricsData(local);
+            console.log('✓ Loaded lyrics files from Firebase');
+        }
+    } catch (error) {
+        console.warn('Error loading lyrics from Firebase:', error);
+    }
+}
+
+function saveMyLyricsToLocalStorage() {
+    saveCurrentFileContentFromUI();
+    console.log('✓ Saved lyrics to localStorage');
+}
+
+async function saveMyLyricsToFirebase() {
+    var saveBtn = document.getElementById('saveToFirebaseBtn');
+    if (!saveBtn) return;
+
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) {
+        alert('請先登入才能儲存歌詞到 Firebase。');
+        return;
+    }
+
+    saveCurrentFileContentFromUI();
+    var data = getMyLyricsData();
+    if (!data.files || Object.keys(data.files).length === 0) {
+        alert('請先新增或輸入歌詞！');
+        return;
+    }
+
+    var originalText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = '儲存中...';
+
+    try {
+        if (!window.firebaseDb) throw new Error('Firebase not initialized');
+        var db = window.firebaseDb;
+        var timestamp = new Date().toISOString();
+
+        await db.collection('userLyrics').doc(user.uid).set({
+            files: data.files,
+            updatedAt: timestamp
+        }, { merge: true });
+
+        setMyLyricsData(data);
+        alert('✓ 歌詞已成功儲存到 Firebase！');
+        console.log('✓ Lyrics saved to Firebase for user', user.uid);
+    } catch (error) {
+        console.error('✗ Error saving lyrics to Firebase:', error);
+        if (error.message && error.message.includes('permissions')) {
+            alert('⚠ 儲存失敗：Firebase 權限錯誤。請檢查 Firebase 設定。\n\n歌詞已儲存到本地瀏覽器。');
+        } else {
+            alert('⚠ 儲存到 Firebase 失敗：' + error.message + '\n\n歌詞已儲存到本地瀏覽器。');
+        }
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+    }
+}
+
+// --- Firebase Auth & Login Panel ---
+
+function setupLoginPanel() {
+    const panel = document.getElementById('loginPanel');
+    const overlay = document.getElementById('loginPanelOverlay');
+    const closeBtn = document.getElementById('closeLoginPanel');
+    const signOutBtn = document.getElementById('signOutBtn');
+    const loginForm = document.getElementById('loginForm');
+    const signupForm = document.getElementById('signupForm');
+    const loginError = document.getElementById('loginError');
+    const signupError = document.getElementById('signupError');
+    const tabs = document.querySelectorAll('.auth-tab');
+
+    if (overlay) overlay.addEventListener('click', closeLoginPanel);
+    if (closeBtn) closeBtn.addEventListener('click', closeLoginPanel);
+
+    if (signOutBtn) {
+        signOutBtn.addEventListener('click', function () {
+            if (!window.firebaseAuth) return;
+            window.firebaseAuth.signOut().then(function () {
+                closeLoginPanel();
+            }).catch(function (err) {
+                console.error('Sign out error:', err);
+            });
+        });
+    }
+
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            const t = this.getAttribute('data-tab');
+            tabs.forEach(function (x) { x.classList.remove('active'); });
+            this.classList.add('active');
+            if (t === 'login') {
+                if (loginForm) loginForm.style.display = 'block';
+                if (signupForm) signupForm.style.display = 'none';
+                if (loginError) loginError.textContent = '';
+            } else {
+                if (loginForm) loginForm.style.display = 'none';
+                if (signupForm) signupForm.style.display = 'block';
+                if (signupError) signupError.textContent = '';
+            }
+        });
+    });
+
+    // Forgot password
+    var forgotPasswordLink = document.getElementById('forgotPasswordLink');
+    var forgotPasswordBlock = document.getElementById('forgotPasswordBlock');
+    var forgotPasswordEmail = document.getElementById('forgotPasswordEmail');
+    var forgotPasswordError = document.getElementById('forgotPasswordError');
+    var forgotPasswordSuccess = document.getElementById('forgotPasswordSuccess');
+    var sendResetEmailBtn = document.getElementById('sendResetEmailBtn');
+    var cancelForgotPasswordBtn = document.getElementById('cancelForgotPasswordBtn');
+
+    if (forgotPasswordLink && forgotPasswordBlock) {
+        forgotPasswordLink.addEventListener('click', function (e) {
+            e.preventDefault();
+            forgotPasswordBlock.style.display = 'block';
+            if (forgotPasswordEmail) forgotPasswordEmail.value = document.getElementById('loginEmail').value.trim();
+            if (forgotPasswordError) forgotPasswordError.textContent = '';
+            if (forgotPasswordSuccess) { forgotPasswordSuccess.style.display = 'none'; forgotPasswordSuccess.textContent = ''; }
+        });
+    }
+    if (cancelForgotPasswordBtn && forgotPasswordBlock) {
+        cancelForgotPasswordBtn.addEventListener('click', function () {
+            forgotPasswordBlock.style.display = 'none';
+            if (forgotPasswordError) forgotPasswordError.textContent = '';
+            if (forgotPasswordSuccess) { forgotPasswordSuccess.style.display = 'none'; forgotPasswordSuccess.textContent = ''; }
+        });
+    }
+    if (sendResetEmailBtn && window.firebaseAuth) {
+        sendResetEmailBtn.addEventListener('click', function () {
+            var email = forgotPasswordEmail ? forgotPasswordEmail.value.trim() : '';
+            if (forgotPasswordError) forgotPasswordError.textContent = '';
+            if (forgotPasswordSuccess) { forgotPasswordSuccess.style.display = 'none'; forgotPasswordSuccess.textContent = ''; }
+            if (!email) {
+                if (forgotPasswordError) forgotPasswordError.textContent = '請輸入電郵地址';
+                return;
+            }
+            sendResetEmailBtn.disabled = true;
+            window.firebaseAuth.sendPasswordResetEmail(email)
+                .then(function () {
+                    if (forgotPasswordSuccess) {
+                        forgotPasswordSuccess.textContent = '已寄出！請檢查你的電郵收件匣（及垃圾郵件）。';
+                        forgotPasswordSuccess.style.display = 'block';
+                    }
+                    sendResetEmailBtn.disabled = false;
+                })
+                .catch(function (err) {
+                    var msg = '無法寄出重設信';
+                    if (err.code === 'auth/user-not-found') msg = '找不到此電郵帳號';
+                    else if (err.code === 'auth/invalid-email') msg = '請輸入有效的電郵地址';
+                    else if (err.message) msg = err.message;
+                    if (forgotPasswordError) forgotPasswordError.textContent = msg;
+                    sendResetEmailBtn.disabled = false;
+                });
+        });
+    }
+
+    // Google sign-in
+    var googleSignInBtn = document.getElementById('googleSignInBtn');
+    if (googleSignInBtn && window.firebaseAuth) {
+        googleSignInBtn.addEventListener('click', function () {
+            if (loginError) loginError.textContent = '';
+            var provider = new firebase.auth.GoogleAuthProvider();
+            window.firebaseAuth.signInWithPopup(provider)
+                .then(function () {
+                    closeLoginPanel();
+                })
+                .catch(function (err) {
+                    var msg = 'Google 登入失敗';
+                    if (err.code === 'auth/popup-closed-by-user') msg = '已取消登入';
+                    else if (err.code === 'auth/popup-blocked') msg = '請允許彈出視窗以使用 Google 登入';
+                    else if (err.code === 'auth/cancelled-popup-request') return;
+                    else if (err.message) msg = err.message;
+                    if (loginError) loginError.textContent = msg;
+                });
+        });
+    }
+
+    if (loginForm) {
+        loginForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!window.firebaseAuth) return;
+            var email = document.getElementById('loginEmail').value.trim();
+            var password = document.getElementById('loginPassword').value;
+            if (loginError) loginError.textContent = '';
+            window.firebaseAuth.signInWithEmailAndPassword(email, password)
+                .then(function () {
+                    closeLoginPanel();
+                })
+                .catch(function (err) {
+                    var msg = '登入失敗';
+                    if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        msg = '電郵或密碼錯誤，請再試';
+                    } else if (err.code === 'auth/invalid-email') {
+                        msg = '請輸入有效的電郵地址';
+                    } else if (err.message) {
+                        msg = err.message;
+                    }
+                    if (loginError) loginError.textContent = msg;
+                });
+        });
+    }
+
+    if (signupForm) {
+        signupForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!window.firebaseAuth) return;
+            var email = document.getElementById('signupEmail').value.trim();
+            var password = document.getElementById('signupPassword').value;
+            var displayName = document.getElementById('signupDisplayName').value.trim();
+            if (signupError) signupError.textContent = '';
+            window.firebaseAuth.createUserWithEmailAndPassword(email, password)
+                .then(function (userCredential) {
+                    if (displayName && userCredential.user) {
+                        return userCredential.user.updateProfile({ displayName: displayName }).then(function () {
+                            closeLoginPanel();
+                        });
+                    }
+                    closeLoginPanel();
+                })
+                .catch(function (err) {
+                    var msg = '註冊失敗';
+                    if (err.code === 'auth/email-already-in-use') {
+                        msg = '此電郵已被使用，請改用「登入」';
+                    } else if (err.code === 'auth/weak-password') {
+                        msg = '密碼至少需要 6 個字';
+                    } else if (err.code === 'auth/invalid-email') {
+                        msg = '請輸入有效的電郵地址';
+                    } else if (err.message) {
+                        msg = err.message;
+                    }
+                    if (signupError) signupError.textContent = msg;
+                });
+        });
+    }
+}
+
+function openLoginPanel() {
+    var panel = document.getElementById('loginPanel');
+    if (!panel) return;
+    panel.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    // Reset to login tab and clear errors
+    var loginForm = document.getElementById('loginForm');
+    var signupForm = document.getElementById('signupForm');
+    var loginError = document.getElementById('loginError');
+    var signupError = document.getElementById('signupError');
+    var tabs = document.querySelectorAll('.auth-tab');
+    if (tabs.length) {
+        tabs.forEach(function (x) { x.classList.remove('active'); });
+        if (tabs[0]) tabs[0].classList.add('active');
+    }
+    if (loginForm) loginForm.style.display = 'block';
+    if (signupForm) signupForm.style.display = 'none';
+    if (loginError) loginError.textContent = '';
+    if (signupError) signupError.textContent = '';
+    var forgotPasswordBlock = document.getElementById('forgotPasswordBlock');
+    if (forgotPasswordBlock) forgotPasswordBlock.style.display = 'none';
+}
+
+function closeLoginPanel() {
+    var panel = document.getElementById('loginPanel');
+    if (panel) {
+        panel.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+function updateLoginUI(user) {
+    var loginLink = document.getElementById('loginMenuLink');
+    var loginAuthState = document.getElementById('loginAuthState');
+    var loginFormContainer = document.getElementById('loginFormContainer');
+    var loginUserEmail = document.getElementById('loginUserEmail');
+    var signOutBtn = document.getElementById('signOutBtn');
+    var myLyricsMenuItem = document.getElementById('myLyricsMenuItem');
+
+    if (!loginLink) return;
+
+    if (user) {
+        loginLink.textContent = user.email || user.displayName || '已登入';
+        loginLink.href = '#login';
+        if (loginAuthState) loginAuthState.style.display = 'block';
+        if (loginUserEmail) loginUserEmail.textContent = '已登入：' + (user.email || '');
+        if (signOutBtn) signOutBtn.style.display = 'block';
+        if (loginFormContainer) loginFormContainer.style.display = 'none';
+        if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'list-item';
+    } else {
+        loginLink.textContent = '登入';
+        loginLink.href = '#login';
+        if (loginAuthState) loginAuthState.style.display = 'none';
+        if (loginUserEmail) loginUserEmail.textContent = '';
+        if (signOutBtn) signOutBtn.style.display = 'none';
+        if (loginFormContainer) loginFormContainer.style.display = 'block';
+        if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'none';
     }
 }
 
