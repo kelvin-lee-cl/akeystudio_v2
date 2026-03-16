@@ -235,6 +235,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         lyricForm.addEventListener('submit', handleFormSubmit);
     }
 
+    // Allow scrolling the page when results container hits edges
+    setupResultsScrollChaining();
+
+    // Make the 0243 hero header collapsible based on scroll position
+    setupHeroCollapseOnScroll();
+
     // Regenerate button
     const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) {
@@ -298,7 +304,143 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
     window.openLoginPanel = openLoginPanel;
     window.openMyLyricsModal = openMyLyricsModal;
+
+    // Hero image: in 0243 / 主題詞語 results mode it becomes a small “navbar icon”
+    // that sits directly next to the input box.
+    // Clicking it re-expands the header if it has been collapsed while scrolling.
+    const heroImage = document.getElementById('heroImage');
+    const heroContainer = heroImage ? heroImage.closest('.hero-image-container') : null;
+    const heroClickTarget = heroContainer || heroImage;
+    if (heroClickTarget) {
+        heroClickTarget.addEventListener('click', function () {
+            // Only react for the compact-header experiences.
+            const mode = document.body.dataset.lastResultMode;
+            if (mode !== '0243' && mode !== 'topic') return;
+
+            // Re-open / expand the hero header.
+            document.body.classList.remove('hero-collapsed-0243');
+
+            // Scroll near the top so the user can actually see the expanded header.
+            const mainPane = document.getElementById('mainPane');
+            if (mainPane) mainPane.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            else window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        });
+    }
 });
+
+// Move hero image container so it sits directly next to the input box.
+function moveHeroNextToInput() {
+    const heroContainer = document.querySelector('.hero-image-container');
+    const inputSection = document.querySelector('.input-section');
+    if (!heroContainer || !inputSection) return;
+
+    // Already moved?
+    if (inputSection.contains(heroContainer)) return;
+
+    // Insert hero at the start of the input section row.
+    inputSection.insertBefore(heroContainer, inputSection.firstChild);
+    heroContainer.classList.add('hero-inline-with-input');
+}
+
+// Reset hero image container back into the header (original position).
+function resetHeroPosition() {
+    const heroContainer = document.querySelector('.hero-image-container');
+    const header = document.querySelector('header');
+    if (!heroContainer || !header) return;
+
+    if (header.contains(heroContainer)) return;
+    header.insertBefore(heroContainer, header.firstChild);
+    heroContainer.classList.remove('hero-inline-with-input');
+}
+
+// When compact results are visible, collapse the hero header as the user scrolls down.
+function setupHeroCollapseOnScroll() {
+    const mainPane = document.getElementById('mainPane');
+    const scrollTarget = mainPane || window;
+
+    if (!scrollTarget) return;
+
+    const getScrollTop = () => {
+        if (scrollTarget === window) {
+            return window.scrollY || document.documentElement.scrollTop || 0;
+        }
+        return scrollTarget.scrollTop || 0;
+    };
+
+    const threshold = 120; // px before we consider the hero "collapsed"
+
+    const onScroll = () => {
+        const mode = document.body.dataset.lastResultMode;
+        if (mode !== '0243' && mode !== 'topic') {
+            document.body.classList.remove('hero-collapsed-0243');
+            return;
+        }
+
+        const scrollTop = getScrollTop();
+        if (scrollTop > threshold) {
+            document.body.classList.add('hero-collapsed-0243');
+        } else {
+            document.body.classList.remove('hero-collapsed-0243');
+        }
+    };
+
+    scrollTarget.addEventListener('scroll', onScroll, { passive: true });
+}
+
+function setupResultsScrollChaining() {
+    const resultsSection = document.getElementById('resultsSection');
+    if (!resultsSection) return;
+
+    // In this app, the main scroll container is usually the split-view main pane,
+    // not the window. If we call window.scrollBy() while the main pane owns scroll,
+    // it will appear as if scrolling is "broken" (especially when resultsSection
+    // prevents default wheel events at its edges).
+    const mainPane =
+        document.getElementById('mainPane') ||
+        resultsSection.closest('.split-view-main-pane');
+
+    const shouldChain = (deltaY) => {
+        const atTop = resultsSection.scrollTop <= 0;
+        const atBottom =
+            Math.ceil(resultsSection.scrollTop + resultsSection.clientHeight) >= resultsSection.scrollHeight;
+        return (deltaY < 0 && atTop) || (deltaY > 0 && atBottom);
+    };
+
+    const chainScrollBy = (deltaY) => {
+        if (mainPane && typeof mainPane.scrollBy === 'function') {
+            mainPane.scrollBy({ top: deltaY, left: 0, behavior: 'auto' });
+            return;
+        }
+        window.scrollBy({ top: deltaY, left: 0, behavior: 'auto' });
+    };
+
+    resultsSection.addEventListener(
+        'wheel',
+        (e) => {
+            if (!shouldChain(e.deltaY)) return;
+            e.preventDefault();
+            chainScrollBy(e.deltaY);
+        },
+        { passive: false }
+    );
+
+    // iOS/Safari: help page scroll when swiping at results edges
+    resultsSection.addEventListener(
+        'touchmove',
+        (e) => {
+            if (!e.touches || e.touches.length !== 1) return;
+            // We can't read swipe direction directly here reliably; keep default
+            // behavior unless we're already at an edge.
+            const atTop = resultsSection.scrollTop <= 0;
+            const atBottom =
+                Math.ceil(resultsSection.scrollTop + resultsSection.clientHeight) >= resultsSection.scrollHeight;
+            if (!atTop && !atBottom) return;
+            // Let the browser scroll the page instead of trapping inside results.
+            // (Don't preventDefault.)
+        },
+        { passive: true }
+    );
+}
 
 // Load lyrics cache from JSON file
 async function loadLyricsCache() {
@@ -556,6 +698,11 @@ async function handleFormSubmit(event) {
             if (resultsSection) {
                 resultsSection.style.display = 'block';
                 document.body.classList.add('results-visible-0243');
+                // Start expanded whenever we generate fresh 0243 results.
+                document.body.classList.remove('hero-collapsed-0243');
+                document.body.dataset.lastResultMode = '0243';
+                // Place hero image inline next to the input box
+                moveHeroNextToInput();
                 resultsSection.scrollTop = 0;
                 resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
@@ -659,6 +806,26 @@ async function handleFormSubmit(event) {
             resultsSection.style.display = 'block';
             resultsSection.scrollTop = 0;
             resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            if (isTopicMode) {
+                // 主題詞語: use the same compact header layout as 0243
+                document.body.classList.add('results-visible-topic');
+                document.body.classList.remove('hero-collapsed-0243');
+                document.body.dataset.lastResultMode = 'topic';
+
+                // Hide topic options once results are displayed – keep only hero + input visible
+                const topicButtonsContainer = document.getElementById('topicButtonsContainer');
+                if (topicButtonsContainer) {
+                    topicButtonsContainer.style.display = 'none';
+                }
+
+                // Place hero image inline next to the input box
+                moveHeroNextToInput();
+            } else {
+                // Other modes should not keep the compact-header state
+                document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
+                try { delete document.body.dataset.lastResultMode; } catch (e) { }
+            }
         }
 
     } catch (error) {

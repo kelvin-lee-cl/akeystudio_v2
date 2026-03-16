@@ -397,24 +397,109 @@ header {
     padding: 50px;
 }
 
-/* 0243 page: when results are visible, shrink hero so full image fits above input */
-body.results-visible-0243 header {
+/* 0243 / 主題詞語 page: when results are visible, show hero icon next to the input bar */
+body.results-visible-0243 header,
+body.results-visible-topic header {
     height: auto;
-    min-height: 100px;
-    padding-top: 80px;
-    padding-bottom: 5px;
-}
-
-body.results-visible-0243 .hero-image-container {
-    padding: 15px 20px;
-}
-
-body.results-visible-0243 .hero-image {
-    width: 55vw;
-    max-width: 420px;
-    height: auto;
-    max-height: 26vh;
+    min-height: 0;
     padding: 0;
+    position: static;
+    /* allow hero to be positioned independently */
+    background: transparent;
+    border: none;
+}
+
+body.results-visible-0243 .hero-image-container,
+body.results-visible-topic .hero-image-container {
+    padding: 0;
+    margin: 0;
+    position: relative;
+    /* now flows inline next to input */
+    top: auto;
+    left: auto;
+    flex: 0 0 auto;
+    cursor: pointer;
+    user-select: none;
+    max-height: 60px;
+    overflow: hidden;
+    transition:
+        opacity 0.25s ease,
+        transform 0.25s ease,
+        max-height 0.25s ease;
+}
+
+body.results-visible-0243 .hero-image,
+body.results-visible-topic .hero-image {
+    width: 44px;
+    height: 44px;
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border-radius: 10px;
+    pointer-events: auto;
+    object-fit: contain;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+    background: #fff;
+    transition:
+        opacity 0.25s ease,
+        transform 0.25s ease;
+}
+
+/* Input bar pinned to the top row, to the right of the hero icon */
+body.results-visible-0243 .input-section,
+body.results-visible-topic .input-section {
+    padding: 10px 16px;
+    position: sticky;
+    top: 80px;
+    /* align with hero icon under navbar */
+    z-index: 300;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+body.results-visible-0243 .input-section .input-group,
+body.results-visible-topic .input-section .input-group {
+    width: 100%;
+    max-width: min(720px, 100vw - 40px);
+    margin: 0 auto;
+}
+
+/* In 主題詞語 mode, show a label to the left of the input box */
+body.results-visible-topic .input-section .input-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+
+body.results-visible-topic .input-section .input-wrapper {
+    flex: 1 1 auto;
+}
+
+/* When scrolled down in 0243 / 主題詞語 mode, fade/collapse the hero icon */
+body.hero-collapsed-0243 .hero-image-container {
+    opacity: 0;
+    transform: translateY(-8px);
+    max-height: 0;
+    pointer-events: none;
+}
+
+body.hero-collapsed-0243 .hero-image {
+    opacity: 0;
+    transform: scale(0.9);
+}
+
+/* Give results a little breathing room below the sticky input */
+body.results-visible-0243 .results-section,
+body.results-visible-topic .results-section {
+    padding-top: 22px;
 }
 
 header h1 {
