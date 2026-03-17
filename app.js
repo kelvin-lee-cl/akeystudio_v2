@@ -130,7 +130,7 @@ async function loadJsonFromFirebase(inputKey) {
         const docRef = db.collection('lyricsCache').doc(inputKey);
         const docSnap = await docRef.get();
 
-        if (docSnap.exists()) {
+        if (docSnap.exists) {
             const data = docSnap.data();
             console.log('✓ JSON loaded from Firebase:', inputKey);
             return data.data || data;
@@ -187,53 +187,54 @@ async function loadAllFromFirebase() {
 }
 
 // Initialize the app
-document.addEventListener('DOMContentLoaded', async function () {
+document.addEventListener('DOMContentLoaded', function () {
     console.log('✓ app.js loaded');
 
-    try {
-        // Wait for Firebase to initialize (check every 100ms, max 3 seconds)
-        let firebaseReady = false;
-        for (let i = 0; i < 30; i++) {
-            if (window.firebaseDb) {
-                firebaseReady = true;
-                console.log('✓ Firebase is ready');
-                break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        if (!firebaseReady) {
-            console.warn('⚠ Firebase not ready after 3 seconds, continuing without Firebase');
-        } else {
-            // Load from Firebase first (latest version)
-            try {
-                console.log('Loading data from Firebase...');
-                const firebaseData = await loadAllFromFirebase();
-                if (firebaseData && Object.keys(firebaseData).length > 0) {
-                    memoryCache = { ...memoryCache, ...firebaseData };
-                    console.log('✓ Firebase data merged into cache:', Object.keys(firebaseData).length, 'items');
-                } else {
-                    console.log('ℹ No data found in Firebase (this is normal for first use)');
-                }
-            } catch (fbErr) {
-                console.warn('Firebase load failed (continuing without):', fbErr && fbErr.message ? fbErr.message : fbErr);
-            }
-        }
-
-        // Load lyrics cache from file (fallback) – await so FetchError is caught
-        await loadLyricsCache();
-    } catch (initErr) {
-        console.warn('Init load error (continuing):', initErr && initErr.message ? initErr.message : initErr);
-    }
-
-    // Load cache from localStorage
-    loadLocalStorageCache();
-
-    // Form submission handler
+    // Bind the lyric form immediately. If we await Firebase/cache first, a fast submit
+    // (e.g. 0243 after hard refresh) does a native form navigation and reloads the page.
     const lyricForm = document.getElementById('lyricForm');
     if (lyricForm) {
         lyricForm.addEventListener('submit', handleFormSubmit);
     }
+
+    loadLocalStorageCache();
+
+    // Load Firebase + lyrics cache without blocking UI binding above
+    void (async function initAppData() {
+        try {
+            // Wait for Firebase to initialize (check every 100ms, max 3 seconds)
+            let firebaseReady = false;
+            for (let i = 0; i < 30; i++) {
+                if (window.firebaseDb) {
+                    firebaseReady = true;
+                    console.log('✓ Firebase is ready');
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            if (!firebaseReady) {
+                console.warn('⚠ Firebase not ready after 3 seconds, continuing without Firebase');
+            } else {
+                try {
+                    console.log('Loading data from Firebase...');
+                    const firebaseData = await loadAllFromFirebase();
+                    if (firebaseData && Object.keys(firebaseData).length > 0) {
+                        memoryCache = { ...memoryCache, ...firebaseData };
+                        console.log('✓ Firebase data merged into cache:', Object.keys(firebaseData).length, 'items');
+                    } else {
+                        console.log('ℹ No data found in Firebase (this is normal for first use)');
+                    }
+                } catch (fbErr) {
+                    console.warn('Firebase load failed (continuing without):', fbErr && fbErr.message ? fbErr.message : fbErr);
+                }
+            }
+
+            await loadLyricsCache();
+        } catch (initErr) {
+            console.warn('Init load error (continuing):', initErr && initErr.message ? initErr.message : initErr);
+        }
+    })();
 
     // Allow scrolling the page when results container hits edges
     setupResultsScrollChaining();
@@ -241,10 +242,16 @@ document.addEventListener('DOMContentLoaded', async function () {
     // Make the 0243 hero header collapsible based on scroll position
     setupHeroCollapseOnScroll();
 
-    // Regenerate button
+    // Regenerate button (主題詞語：換兩個詞；其他：tone pattern modal)
     const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) {
-        regenerateBtn.addEventListener('click', openRegenerateModal);
+        regenerateBtn.addEventListener('click', function () {
+            if (window.currentResult && window.currentResult.topicModeWords) {
+                handleTopicRegenerate();
+            } else {
+                openRegenerateModal();
+            }
+        });
     }
 
     // Regenerate modal handlers
@@ -352,6 +359,7 @@ function resetHeroPosition() {
     header.insertBefore(heroContainer, header.firstChild);
     heroContainer.classList.remove('hero-inline-with-input');
 }
+window.resetHeroPosition = resetHeroPosition;
 
 // When compact results are visible, collapse the hero header as the user scrolls down.
 function setupHeroCollapseOnScroll() {
@@ -446,10 +454,12 @@ function setupResultsScrollChaining() {
 async function loadLyricsCache() {
     try {
         const response = await fetch('lyrics-cache.json');
-        if (response.ok) {
-            lyricsCacheData = await response.json();
-            console.log('✓ Loaded lyrics-cache.json');
+        if (!response.ok) {
+            lyricsCacheData = null;
+            return;
         }
+        lyricsCacheData = await response.json();
+        console.log('✓ Loaded lyrics-cache.json');
     } catch (error) {
         var msg = (error && (error.message || error.name)) ? (error.message || error.name) : String(error);
         console.warn('Could not load lyrics-cache.json:', msg);
@@ -647,6 +657,64 @@ async function generatePhrasesWithDeepseek(tonePattern, topic = null, phraseCoun
     }
 }
 
+/** Cache key for 主題詞語 (two related words per topic). */
+function topicWordsCacheKey(topic) {
+    return 'topicWords:' + String(topic).trim();
+}
+
+/**
+ * Ask DeepSeek for exactly two Cantonese words/phrases (繁體) related to the theme.
+ * No tones or Jyutping — display uses topic-button style only.
+ */
+async function generateTopicRelatedWordsDeepseek(topic) {
+    const t = String(topic).trim();
+    const prompt =
+        `The user chose this theme for lyrics: "${t}". ` +
+        `Suggest exactly TWO different Cantonese words or short two-character phrases (繁體中文) that fit this theme. ` +
+        `Each item should be a common collocation or vocabulary related to the theme. ` +
+        `Return ONLY a JSON array of exactly two strings, for example: ["詞語一","詞語二"]. ` +
+        `No Jyutping, no tone numbers, no English, no markdown — only the JSON array.`;
+
+    const response = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + DEEPSEEK_API_KEY
+        },
+        body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.75,
+            max_tokens: 500
+        })
+    }).catch(function (err) {
+        throw new Error('Network error: ' + (err && err.message ? err.message : String(err)));
+    });
+
+    if (!response.ok) {
+        throw new Error('API error: ' + response.status + ' ' + response.statusText);
+    }
+
+    const data = await response.json();
+    const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content)
+        ? data.choices[0].message.content.trim()
+        : '';
+    let jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+        throw new Error('Could not parse two words from API');
+    }
+    let arr;
+    try {
+        arr = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+        throw new Error('Invalid JSON from API');
+    }
+    if (!Array.isArray(arr) || arr.length < 2) {
+        throw new Error('Expected two words from API');
+    }
+    return [String(arr[0]).trim(), String(arr[1]).trim()].filter(Boolean);
+}
+
 // Handle form submission
 async function handleFormSubmit(event) {
     event.preventDefault();
@@ -721,39 +789,72 @@ async function handleFormSubmit(event) {
         return;
     }
 
-    // Check if it's topic mode
+    // Check if it's topic mode (主題詞語): two related words only — no tone patterns
     const isTopicMode = inputDigits.classList.contains('topic-mode');
-    let topic = null;
     let actualInput = input;
 
     if (isTopicMode) {
-        topic = input;
+        const topic = input;
         if (!topic) {
             showError('Please select or enter a topic.');
             return;
         }
-        // For topic mode, use a default pattern (e.g., "23" for 2-tone)
-        // If user entered digits, use those; otherwise use default
-        if (/^[0234]{2,3}$/.test(input)) {
-            actualInput = input;
-        } else {
-            actualInput = '23'; // Default 2-tone pattern for topic mode
-        }
-    } else {
-        // Allow 2 digits 0–9 (normalized to 0,2,3,4) or 2–3 digits 0,2,3,4
-        if (/^[0-9]{2}$/.test(actualInput)) {
-            const canonical = normalize0243Input(actualInput);
-            if (canonical) actualInput = canonical;
-            else {
-                showError('Please enter 2 digits from 0–9.');
-                return;
+        const cacheKey = topicWordsCacheKey(topic);
+        if (btnText) btnText.style.display = 'none';
+        if (btnLoader) btnLoader.style.display = 'inline';
+        if (generateBtn) generateBtn.disabled = true;
+        try {
+            let result = await getCachedResult(cacheKey);
+            if (!result || !result.topicModeWords || result.topic !== topic) {
+                const relatedWords = await generateTopicRelatedWordsDeepseek(topic);
+                if (relatedWords.length < 2) {
+                    showError('無法取得兩個相關詞語，請再試一次。');
+                    return;
+                }
+                result = {
+                    topicModeWords: true,
+                    topic,
+                    relatedWords: relatedWords.slice(0, 2),
+                    input: cacheKey,
+                    input_length: 2
+                };
+                await saveToCache(cacheKey, result);
             }
-        } else if (!/^[0234]{2,3}$/.test(actualInput)) {
-            showError('Please enter 2 digits (0–9) or 2–3 digits (0, 2, 3, 4).');
-            return;
+            displayResults(result);
+            if (resultsSection) {
+                resultsSection.style.display = 'block';
+                resultsSection.scrollTop = 0;
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                document.body.classList.add('results-visible-topic');
+                document.body.classList.remove('hero-collapsed-0243');
+                document.body.dataset.lastResultMode = 'topic';
+                const topicButtonsContainer = document.getElementById('topicButtonsContainer');
+                if (topicButtonsContainer) topicButtonsContainer.style.display = 'none';
+                moveHeroNextToInput();
+            }
+        } catch (error) {
+            console.error('Topic words error:', error);
+            showError(error && error.message ? error.message : '無法載入主題詞語，請稍後再試。');
+        } finally {
+            if (btnText) btnText.style.display = 'inline';
+            if (btnLoader) btnLoader.style.display = 'none';
+            if (generateBtn) generateBtn.disabled = false;
         }
+        return;
     }
 
+    // Non–topic mode: digit patterns for tone lyrics
+    // Allow 2 digits 0–9 (normalized to 0,2,3,4) or 2–3 digits 0,2,3,4
+    if (/^[0-9]{2}$/.test(actualInput)) {
+        const canonical = normalize0243Input(actualInput);
+        if (canonical) actualInput = canonical;
+        else {
+            showError('Please enter 2 digits from 0–9.');
+            return;
+        }
+    } else if (!/^[0234]{2,3}$/.test(actualInput)) {
+        showError('Please enter 2 digits (0–9) or 2–3 digits (0, 2, 3, 4).');
+        return;
     // Show loading state
     if (btnText) btnText.style.display = 'none';
     if (btnLoader) btnLoader.style.display = 'inline';
@@ -764,6 +865,8 @@ async function handleFormSubmit(event) {
         let result = await getCachedResult(actualInput);
 
         if (!result || (topic && result.topic !== topic)) {
+            // Generate tone patterns
+        if (!result) {
             // Generate tone patterns
             const patterns = generateTonePatterns(actualInput);
 
@@ -777,18 +880,14 @@ async function handleFormSubmit(event) {
                 },
                 results: {
                     [`${actualInput.length}-tone`]: {}
-                },
-                topic: topic,
-                original_input: isTopicMode ? input : null
-            };
-
+                }
             // Generate phrases for each pattern
             const patternKey = `${actualInput.length}-tone`;
             for (const pattern of patterns) {
                 try {
                     const phrases = await generatePhrasesWithDeepseek(pattern, topic, 5);
                     result.results[patternKey][pattern] = phrases;
-                } catch (error) {
+                    const phrases = await generatePhrasesWithDeepseek(pattern, null, 5);
                     console.error(`Error generating phrases for pattern ${pattern}:`, error);
                     result.results[patternKey][pattern] = [];
                 }
@@ -808,26 +907,10 @@ async function handleFormSubmit(event) {
             resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             if (isTopicMode) {
-                // 主題詞語: use the same compact header layout as 0243
-                document.body.classList.add('results-visible-topic');
-                document.body.classList.remove('hero-collapsed-0243');
-                document.body.dataset.lastResultMode = 'topic';
-
-                // Hide topic options once results are displayed – keep only hero + input visible
-                const topicButtonsContainer = document.getElementById('topicButtonsContainer');
-                if (topicButtonsContainer) {
-                    topicButtonsContainer.style.display = 'none';
-                }
-
-                // Place hero image inline next to the input box
-                moveHeroNextToInput();
-            } else {
-                // Other modes should not keep the compact-header state
-                document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
-                try { delete document.body.dataset.lastResultMode; } catch (e) { }
-            }
-        }
-
+            document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
+            try {
+                delete document.body.dataset.lastResultMode;
+            } catch (e) {}
     } catch (error) {
         console.error('Error generating lyrics:', error);
         showError('Failed to generate lyrics. Please check your API key and try again.');
@@ -848,6 +931,42 @@ function displayResults(result) {
 
     const patternKey = `${result.input_length}-tone`;
     const patterns = result.patterns[patternKey] || [];
+    const regenerateBtn = document.getElementById('regenerateBtn');
+    if (regenerateBtn) regenerateBtn.style.display = 'none';
+
+    if (result.topicModeWords && Array.isArray(result.relatedWords) && result.relatedWords.length >= 2) {
+        if (regenerateBtn) {
+            regenerateBtn.style.display = 'inline-flex';
+            regenerateBtn.textContent = '🔄 換兩個詞';
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'pattern-group topic-words-result';
+        const patternHeader = document.createElement('div');
+        patternHeader.className = 'pattern-header';
+        patternHeader.innerHTML =
+            '<h3>主題：' +
+            String(result.topic || '').replace(/</g, '&lt;') +
+            '</h3><p class="pattern-mapping-hint">與主題相關的兩個詞語</p>';
+        wrap.appendChild(patternHeader);
+        const grid = document.createElement('div');
+        grid.className = 'topic-buttons-grid topic-buttons-grid--results';
+        result.relatedWords.slice(0, 2).forEach(function (word) {
+            const btn = document.createElement('div');
+            btn.className = 'topic-btn topic-btn--result-word';
+            btn.setAttribute('role', 'presentation');
+            const label = document.createElement('span');
+            label.className = 'topic-label';
+            label.textContent = word;
+            btn.appendChild(label);
+            grid.appendChild(btn);
+        });
+        wrap.appendChild(grid);
+        resultsContainer.appendChild(wrap);
+        window.currentResult = result;
+        updateJsonOutput(result);
+        return;
+    }
+
     const results = result.results[patternKey] || {};
 
     const wordsOnly = result.from0243 === true;
@@ -1086,10 +1205,6 @@ function setupRegenerateModal() {
         regenerateBtn.addEventListener('click', openRegenerateModal);
     }
 
-    if (modalClose) {
-        modalClose.addEventListener('click', closeRegenerateModal);
-    }
-
     if (cancelBtn) {
         cancelBtn.addEventListener('click', closeRegenerateModal);
     }
@@ -1164,6 +1279,35 @@ function closeRegenerateModal() {
 
 // Handle regenerate
 async function handleRegenerate() {
+async function handleTopicRegenerate() {
+    if (!window.currentResult || !window.currentResult.topicModeWords || !window.currentResult.topic) return;
+    const topic = window.currentResult.topic;
+    const cacheKey = topicWordsCacheKey(topic);
+    const generateBtn = document.getElementById('generateBtn');
+    const btnText = generateBtn ? generateBtn.querySelector('.btn-text') : null;
+    const btnLoader = generateBtn ? generateBtn.querySelector('.btn-loader') : null;
+    if (btnText) btnText.style.display = 'none';
+    if (btnLoader) btnLoader.style.display = 'inline';
+    if (generateBtn) generateBtn.disabled = true;
+    try {
+        const relatedWords = await generateTopicRelatedWordsDeepseek(topic);
+        if (relatedWords.length < 2) {
+            showError('無法取得兩個相關詞語，請再試一次。');
+            return;
+        }
+        window.currentResult.relatedWords = relatedWords.slice(0, 2);
+        await saveToCache(cacheKey, window.currentResult);
+        displayResults(window.currentResult);
+    } catch (e) {
+        console.error('Topic regenerate:', e);
+        showError(e && e.message ? e.message : '無法重新載入，請稍後再試。');
+    } finally {
+        if (btnText) btnText.style.display = 'inline';
+        if (btnLoader) btnLoader.style.display = 'none';
+        if (generateBtn) generateBtn.disabled = false;
+    }
+}
+
     const modal = document.getElementById('regenerateModal');
     const phraseCountInput = document.getElementById('phraseCountInput');
     const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');

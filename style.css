@@ -678,6 +678,27 @@ header h1 {
     margin: 0 auto;
 }
 
+/* 主題詞語結果：兩個詞與選題同風格，2×2／每行 2 個 */
+.topic-buttons-grid.topic-buttons-grid--results {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 520px;
+}
+
+.topic-btn.topic-btn--result-word {
+    cursor: default;
+    pointer-events: none;
+    min-height: 100px;
+    justify-content: center;
+}
+
+.topic-btn.topic-btn--result-word .topic-label {
+    font-size: 1.35em;
+}
+
+.topic-words-result .pattern-header h3 {
+    font-size: 1.15em;
+}
+
 .topic-btn {
     background: white;
     border: 2px solid #e0e0e0;
@@ -1554,12 +1575,14 @@ button:disabled {
 
     .lyrics-panel-footer {
         padding: 15px 20px;
-        flex-direction: column;
+        flex-direction: row;
+        justify-content: space-between;
     }
 
     .lyrics-panel-footer .btn-primary,
     .lyrics-panel-footer .btn-secondary {
-        width: 100%;
+        width: auto;
+        min-width: 0;
     }
 }
 
@@ -1974,14 +1997,15 @@ button:disabled {
         font-size: 0.95em;
     }
 
+    /* 主題歌詞：手機上主題按鈕 2 欄（每行 2 個），2×2 或 3 行 */
     .topic-buttons-grid {
-        grid-template-columns: 1fr;
-        gap: 12px;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px 12px;
     }
 
     .topic-btn {
-        min-height: 90px;
-        padding: 10px;
+        min-height: 88px;
+        padding: 10px 8px;
     }
 
     .topic-emoji {
