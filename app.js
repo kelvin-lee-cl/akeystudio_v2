@@ -130,6 +130,8 @@ async function loadJsonFromFirebase(inputKey) {
         const docRef = db.collection('lyricsCache').doc(inputKey);
         const docSnap = await docRef.get();
 
+        // Firestore compat SDK returns a DocumentSnapshot where `exists` is a boolean
+        // property, not a function. Use `docSnap.exists` instead of `docSnap.exists()`.
         if (docSnap.exists) {
             const data = docSnap.data();
             console.log('✓ JSON loaded from Firebase:', inputKey);
@@ -663,17 +665,18 @@ function topicWordsCacheKey(topic) {
 }
 
 /**
- * Ask DeepSeek for exactly two Cantonese words/phrases (繁體) related to the theme.
- * No tones or Jyutping — display uses topic-button style only.
+ * Ask DeepSeek for Cantonese 主題詞語 related to the theme.
+ * Returns up to `count` words/short phrases (default: 6), which will be shown as boxes.
  */
-async function generateTopicRelatedWordsDeepseek(topic) {
+async function generateTopicRelatedWordsDeepseek(topic, count = 6) {
     const t = String(topic).trim();
+    const n = Math.max(1, Math.min(10, Number(count) || 6));
     const prompt =
-        `The user chose this theme for lyrics: "${t}". ` +
-        `Suggest exactly TWO different Cantonese words or short two-character phrases (繁體中文) that fit this theme. ` +
-        `Each item should be a common collocation or vocabulary related to the theme. ` +
-        `Return ONLY a JSON array of exactly two strings, for example: ["詞語一","詞語二"]. ` +
-        `No Jyutping, no tone numbers, no English, no markdown — only the JSON array.`;
+        'The user chose this theme for lyrics: "' + t + '". ' +
+        'Suggest EXACTLY ' + n + ' different Cantonese theme words or short two-character phrases (繁體中文) that clearly relate to this theme. ' +
+        'Each item must be a single word or a short 2-character phrase (主題詞語), no punctuation, no numbering. ' +
+        'Return ONLY a JSON array of exactly ' + n + ' strings, for example: ["詞語一","詞語二",...]. ' +
+        'No Jyutping, no tone numbers, no English, no explanations, no markdown — only the JSON array.';
 
     const response = await fetch(DEEPSEEK_API_URL, {
         method: 'POST',
@@ -701,7 +704,7 @@ async function generateTopicRelatedWordsDeepseek(topic) {
         : '';
     let jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-        throw new Error('Could not parse two words from API');
+        throw new Error('Could not parse topic words from API');
     }
     let arr;
     try {
@@ -709,10 +712,16 @@ async function generateTopicRelatedWordsDeepseek(topic) {
     } catch (e) {
         throw new Error('Invalid JSON from API');
     }
-    if (!Array.isArray(arr) || arr.length < 2) {
-        throw new Error('Expected two words from API');
+    if (!Array.isArray(arr) || arr.length === 0) {
+        throw new Error('Expected an array of topic words from API');
     }
-    return [String(arr[0]).trim(), String(arr[1]).trim()].filter(Boolean);
+    const cleaned = arr
+        .map(function (item) { return String(item || '').trim(); })
+        .filter(function (s) { return s.length > 0; });
+    if (cleaned.length < n) {
+        throw new Error('API did not return enough topic words');
+    }
+    return cleaned.slice(0, n);
 }
 
 // Handle form submission
@@ -800,23 +809,24 @@ async function handleFormSubmit(event) {
             return;
         }
         const cacheKey = topicWordsCacheKey(topic);
+        const requiredCount = 6;
         if (btnText) btnText.style.display = 'none';
         if (btnLoader) btnLoader.style.display = 'inline';
         if (generateBtn) generateBtn.disabled = true;
         try {
             let result = await getCachedResult(cacheKey);
-            if (!result || !result.topicModeWords || result.topic !== topic) {
-                const relatedWords = await generateTopicRelatedWordsDeepseek(topic);
-                if (relatedWords.length < 2) {
-                    showError('無法取得兩個相關詞語，請再試一次。');
+            if (!result || !result.topicModeWords || result.topic !== topic || !Array.isArray(result.relatedWords) || result.relatedWords.length < requiredCount) {
+                const relatedWords = await generateTopicRelatedWordsDeepseek(topic, requiredCount);
+                if (!relatedWords || relatedWords.length < requiredCount) {
+                    showError('無法取得主題詞語，請再試一次。');
                     return;
                 }
                 result = {
                     topicModeWords: true,
                     topic,
-                    relatedWords: relatedWords.slice(0, 2),
+                    relatedWords: relatedWords.slice(0, requiredCount),
                     input: cacheKey,
-                    input_length: 2
+                    input_length: requiredCount
                 };
                 await saveToCache(cacheKey, result);
             }
@@ -855,19 +865,19 @@ async function handleFormSubmit(event) {
     } else if (!/^[0234]{2,3}$/.test(actualInput)) {
         showError('Please enter 2 digits (0–9) or 2–3 digits (0, 2, 3, 4).');
         return;
+    }
+
     // Show loading state
     if (btnText) btnText.style.display = 'none';
     if (btnLoader) btnLoader.style.display = 'inline';
     if (generateBtn) generateBtn.disabled = true;
 
     try {
-        // Check cache first (use actualInput for caching, but include topic in result)
+        // Check cache first using the normalized digit input
         let result = await getCachedResult(actualInput);
 
-        if (!result || (topic && result.topic !== topic)) {
-            // Generate tone patterns
         if (!result) {
-            // Generate tone patterns
+            // Generate tone patterns for this digit input
             const patterns = generateTonePatterns(actualInput);
 
             // Create result structure
@@ -881,19 +891,21 @@ async function handleFormSubmit(event) {
                 results: {
                     [`${actualInput.length}-tone`]: {}
                 }
-            // Generate phrases for each pattern
+            };
+
+            // Generate phrases for each pattern (no topic in this mode)
             const patternKey = `${actualInput.length}-tone`;
             for (const pattern of patterns) {
                 try {
-                    const phrases = await generatePhrasesWithDeepseek(pattern, topic, 5);
-                    result.results[patternKey][pattern] = phrases;
                     const phrases = await generatePhrasesWithDeepseek(pattern, null, 5);
+                    result.results[patternKey][pattern] = phrases;
+                } catch (error) {
                     console.error(`Error generating phrases for pattern ${pattern}:`, error);
                     result.results[patternKey][pattern] = [];
                 }
             }
 
-            // Save to cache (use actualInput as key, but include topic in cache)
+            // Save to cache
             await saveToCache(actualInput, result);
         }
 
@@ -906,11 +918,12 @@ async function handleFormSubmit(event) {
             resultsSection.scrollTop = 0;
             resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-            if (isTopicMode) {
+            // Non-topic digit mode should not keep the compact-topic header
             document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
             try {
                 delete document.body.dataset.lastResultMode;
             } catch (e) {}
+        }
     } catch (error) {
         console.error('Error generating lyrics:', error);
         showError('Failed to generate lyrics. Please check your API key and try again.');
@@ -928,16 +941,14 @@ function displayResults(result) {
     if (!resultsContainer) return;
 
     resultsContainer.innerHTML = '';
-
-    const patternKey = `${result.input_length}-tone`;
-    const patterns = result.patterns[patternKey] || [];
     const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) regenerateBtn.style.display = 'none';
 
-    if (result.topicModeWords && Array.isArray(result.relatedWords) && result.relatedWords.length >= 2) {
+    // Topic words mode: show 主題詞語 boxes only, no tone patterns
+    if (result.topicModeWords && Array.isArray(result.relatedWords) && result.relatedWords.length > 0) {
         if (regenerateBtn) {
             regenerateBtn.style.display = 'inline-flex';
-            regenerateBtn.textContent = '🔄 換兩個詞';
+            regenerateBtn.textContent = '🔄 換其他詞語';
         }
         const wrap = document.createElement('div');
         wrap.className = 'pattern-group topic-words-result';
@@ -946,11 +957,11 @@ function displayResults(result) {
         patternHeader.innerHTML =
             '<h3>主題：' +
             String(result.topic || '').replace(/</g, '&lt;') +
-            '</h3><p class="pattern-mapping-hint">與主題相關的兩個詞語</p>';
+            '</h3><p class="pattern-mapping-hint">與主題相關的主題詞語</p>';
         wrap.appendChild(patternHeader);
         const grid = document.createElement('div');
         grid.className = 'topic-buttons-grid topic-buttons-grid--results';
-        result.relatedWords.slice(0, 2).forEach(function (word) {
+        result.relatedWords.slice(0, 6).forEach(function (word) {
             const btn = document.createElement('div');
             btn.className = 'topic-btn topic-btn--result-word';
             btn.setAttribute('role', 'presentation');
@@ -967,12 +978,17 @@ function displayResults(result) {
         return;
     }
 
-    const results = result.results[patternKey] || {};
+    // Tone-pattern modes (0243 / digits -> tones)
+    const patternKey = `${result.input_length}-tone`;
+    const patterns =
+        (result.patterns && result.patterns[patternKey]) ? result.patterns[patternKey] : [];
+    const resultsMap =
+        (result.results && result.results[patternKey]) ? result.results[patternKey] : {};
 
     const wordsOnly = result.from0243 === true;
 
     patterns.forEach(pattern => {
-        const phrases = results[pattern] || [];
+        const phrases = resultsMap[pattern] || [];
 
         const patternDiv = document.createElement('div');
         patternDiv.className = 'pattern-group';
@@ -1277,45 +1293,18 @@ function closeRegenerateModal() {
     }
 }
 
-// Handle regenerate
+// Handle regenerate (tone patterns – non-topic modes)
 async function handleRegenerate() {
-async function handleTopicRegenerate() {
-    if (!window.currentResult || !window.currentResult.topicModeWords || !window.currentResult.topic) return;
-    const topic = window.currentResult.topic;
-    const cacheKey = topicWordsCacheKey(topic);
-    const generateBtn = document.getElementById('generateBtn');
-    const btnText = generateBtn ? generateBtn.querySelector('.btn-text') : null;
-    const btnLoader = generateBtn ? generateBtn.querySelector('.btn-loader') : null;
-    if (btnText) btnText.style.display = 'none';
-    if (btnLoader) btnLoader.style.display = 'inline';
-    if (generateBtn) generateBtn.disabled = true;
-    try {
-        const relatedWords = await generateTopicRelatedWordsDeepseek(topic);
-        if (relatedWords.length < 2) {
-            showError('無法取得兩個相關詞語，請再試一次。');
-            return;
-        }
-        window.currentResult.relatedWords = relatedWords.slice(0, 2);
-        await saveToCache(cacheKey, window.currentResult);
-        displayResults(window.currentResult);
-    } catch (e) {
-        console.error('Topic regenerate:', e);
-        showError(e && e.message ? e.message : '無法重新載入，請稍後再試。');
-    } finally {
-        if (btnText) btnText.style.display = 'inline';
-        if (btnLoader) btnLoader.style.display = 'none';
-        if (generateBtn) generateBtn.disabled = false;
-    }
-}
-
     const modal = document.getElementById('regenerateModal');
+    if (!modal || !window.currentResult) return;
+
     const phraseCountInput = document.getElementById('phraseCountInput');
     const checkboxes = modal.querySelectorAll('input[type="checkbox"]:checked');
 
-    if (!window.currentResult || checkboxes.length === 0) return;
+    if (checkboxes.length === 0) return;
 
-    const phraseCount = parseInt(phraseCountInput.value) || 2;
-    const selectedPatterns = Array.from(checkboxes).map(cb => cb.value);
+    const phraseCount = parseInt(phraseCountInput.value, 10) || 2;
+    const selectedPatterns = Array.from(checkboxes).map(function (cb) { return cb.value; });
     const patternKey = `${window.currentResult.input_length}-tone`;
     const topic = window.currentResult.topic || null;
 
@@ -1323,10 +1312,11 @@ async function handleTopicRegenerate() {
 
     // Show loading
     const generateBtn = document.getElementById('generateBtn');
+    if (!generateBtn) return;
     const btnText = generateBtn.querySelector('.btn-text');
     const btnLoader = generateBtn.querySelector('.btn-loader');
-    btnText.style.display = 'none';
-    btnLoader.style.display = 'inline';
+    if (btnText) btnText.style.display = 'none';
+    if (btnLoader) btnLoader.style.display = 'inline';
     generateBtn.disabled = true;
 
     try {
@@ -1334,6 +1324,9 @@ async function handleTopicRegenerate() {
         for (const pattern of selectedPatterns) {
             try {
                 const phrases = await generatePhrasesWithDeepseek(pattern, topic, phraseCount);
+                if (!window.currentResult.results[patternKey]) {
+                    window.currentResult.results[patternKey] = {};
+                }
                 window.currentResult.results[patternKey][pattern] = phrases;
             } catch (error) {
                 console.error(`Error regenerating pattern ${pattern}:`, error);
@@ -1345,14 +1338,44 @@ async function handleTopicRegenerate() {
 
         // Redisplay results
         displayResults(window.currentResult);
-
     } catch (error) {
         console.error('Error regenerating lyrics:', error);
         showError('Failed to regenerate lyrics. Please try again.');
     } finally {
-        btnText.style.display = 'inline';
-        btnLoader.style.display = 'none';
+        if (btnText) btnText.style.display = 'inline';
+        if (btnLoader) btnLoader.style.display = 'none';
         generateBtn.disabled = false;
+    }
+}
+
+// Regenerate 主題詞語 (six boxes) in topic mode
+async function handleTopicRegenerate() {
+    if (!window.currentResult || !window.currentResult.topicModeWords || !window.currentResult.topic) return;
+    const topic = window.currentResult.topic;
+    const cacheKey = topicWordsCacheKey(topic);
+    const requiredCount = 6;
+    const generateBtn = document.getElementById('generateBtn');
+    const btnText = generateBtn ? generateBtn.querySelector('.btn-text') : null;
+    const btnLoader = generateBtn ? generateBtn.querySelector('.btn-loader') : null;
+    if (btnText) btnText.style.display = 'none';
+    if (btnLoader) btnLoader.style.display = 'inline';
+    if (generateBtn) generateBtn.disabled = true;
+    try {
+        const relatedWords = await generateTopicRelatedWordsDeepseek(topic, requiredCount);
+        if (!relatedWords || relatedWords.length < requiredCount) {
+            showError('無法取得主題詞語，請再試一次。');
+            return;
+        }
+        window.currentResult.relatedWords = relatedWords.slice(0, requiredCount);
+        await saveToCache(cacheKey, window.currentResult);
+        displayResults(window.currentResult);
+    } catch (e) {
+        console.error('Topic regenerate:', e);
+        showError(e && e.message ? e.message : '無法重新載入，請稍後再試。');
+    } finally {
+        if (btnText) btnText.style.display = 'inline';
+        if (btnLoader) btnLoader.style.display = 'none';
+        if (generateBtn) generateBtn.disabled = false;
     }
 }
 

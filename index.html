@@ -492,13 +492,12 @@
             var resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
-            // Move hero back into <header> BEFORE removing results-visible-* classes. Otherwise the
-            // header becomes default 60vh while the hero is still in .input-section → empty band + huge hero = "gap".
+            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
+            try { delete document.body.dataset.lastResultMode; } catch (e) { }
+
             if (typeof resetHeroPosition === 'function') {
                 resetHeroPosition();
             }
-            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
-            try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             var jsonOutput = document.getElementById('jsonOutput');
             if (jsonOutput) {
@@ -569,11 +568,12 @@
             const resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
+            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
+            try { delete document.body.dataset.lastResultMode; } catch (e) { }
+
             if (typeof resetHeroPosition === 'function') {
                 resetHeroPosition();
             }
-            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
-            try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             var jsonOutput0243 = document.getElementById('jsonOutput');
             if (jsonOutput0243) {
@@ -636,13 +636,15 @@
             const resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
-            if (typeof resetHeroPosition === 'function') {
-                resetHeroPosition();
-            }
             document.body.classList.remove('results-visible-0243');
             // Reset 0243 “compact hero header” state (set in app.js)
             document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
+
+            // Move hero back to its original position in the header
+            if (typeof resetHeroPosition === 'function') {
+                resetHeroPosition();
+            }
 
             var jsonOutputHome = document.getElementById('jsonOutput');
             if (jsonOutputHome) {

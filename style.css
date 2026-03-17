@@ -1575,14 +1575,12 @@ button:disabled {
 
     .lyrics-panel-footer {
         padding: 15px 20px;
-        flex-direction: row;
-        justify-content: space-between;
+        flex-direction: column;
     }
 
     .lyrics-panel-footer .btn-primary,
     .lyrics-panel-footer .btn-secondary {
-        width: auto;
-        min-width: 0;
+        width: 100%;
     }
 }
 
