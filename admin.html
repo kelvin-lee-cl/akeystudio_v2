@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akeystudio - Admin</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="admin-body">
+    <div class="admin-page">
+        <div id="adminAuthCard" class="admin-auth-card admin-card">
+            <div id="adminAuthSession" class="admin-auth-session" style="display:none;" aria-label="目前帳戶">
+                <span class="admin-chip admin-user-email"></span>
+                <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn" style="display:none;">登出</button>
+            </div>
+            <h2 class="admin-auth-card__title">管理員登入</h2>
+            <p class="admin-auth-card__lead">請使用已被授權的帳號登入。沒有權限將無法查看資料。</p>
+
+            <form id="adminLoginForm" class="admin-auth-form">
+                <label class="admin-auth-label">電郵</label>
+                <input class="admin-input" type="email" id="adminLoginEmail" placeholder="admin@email.com" required>
+                <label class="admin-auth-label">密碼</label>
+                <input class="admin-input" type="password" id="adminLoginPassword" placeholder="••••••••" required>
+                <p id="adminLoginError" class="auth-error" style="display:none;"></p>
+                <div class="admin-auth-form__buttons">
+                    <button type="submit" class="btn-primary">登入</button>
+                    <button type="button" id="adminGoogleSignInBtn" class="btn-google">
+                        <span class="btn-google-inner">
+                            <span class="btn-google-text">使用 Google 登入</span>
+                        </span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div id="adminAppCard" class="admin-dashboard" style="display:none;">
+            <details class="admin-dashboard__settings admin-card">
+                <summary class="admin-dashboard__settings-summary">管理員帳號設定</summary>
+                <div class="admin-dashboard__settings-body">
+                    <div class="admin-settings-add">
+                        <input id="newAdminEmailInput" class="admin-input" type="email" placeholder="以電郵加入管理員">
+                        <button id="addAdminBtn" class="btn-primary" type="button">加入</button>
+                    </div>
+                    <div id="foreverAdminHint" class="admin-badge-warn">內建永久管理員：kelvinlee@futureleadersunion.com（不可移除）</div>
+                    <div class="admin-hr"></div>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Admin</th>
+                                    <th>狀態</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+
+            <section class="admin-dashboard__main admin-card">
+                <div class="admin-dashboard__main-head">
+                    <div class="admin-dashboard__main-intro">
+                        <h1 class="admin-dashboard__heading">歌詞總覽</h1>
+                        <p class="admin-dashboard__lead">每張卡片為一份歌詞檔案；點選後於下方檢視與編輯。</p>
+                    </div>
+                    <div class="admin-dashboard__main-aside">
+                        <div class="admin-dashboard__stat" aria-live="polite">
+                            <span id="dashboardSubmissionCount" class="admin-dashboard__stat-value">0</span>
+                            <span class="admin-dashboard__stat-label">份歌詞</span>
+                        </div>
+                        <div id="adminDashboardSession" class="admin-dashboard__session" style="display:none;" aria-label="目前帳戶">
+                            <span class="admin-chip admin-user-email"></span>
+                            <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn" style="display:none;">登出</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="admin-dashboard-toolbar">
+                    <input id="submissionSearchInput" class="admin-input admin-dashboard-toolbar__search" type="search" placeholder="搜尋：學生姓名、電郵、歌詞名稱…" autocomplete="off">
+                    <label class="admin-toolbar-label">
+                        <span>排序</span>
+                        <select id="submissionSortSelect" class="admin-select">
+                            <option value="submitted-desc">提交時間（新→舊）</option>
+                            <option value="submitted-asc">提交時間（舊→新）</option>
+                            <option value="student-asc">學生姓名（A→Z）</option>
+                            <option value="lyric-asc">歌詞名稱（A→Z）</option>
+                        </select>
+                    </label>
+                    <label class="admin-toolbar-label">
+                        <span>時間篩選</span>
+                        <select id="submissionDateFilterSelect" class="admin-select">
+                            <option value="all">全部</option>
+                            <option value="7d">最近 7 日</option>
+                            <option value="30d">最近 30 日</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div id="submissionCardsEmpty" class="admin-lyrics-empty" style="display:none;">沒有符合條件的歌詞，或尚無學生提交。</div>
+                <div id="submissionCardsGrid" class="admin-dashboard-cards-grid"></div>
+            </section>
+
+            <section class="admin-detail admin-card">
+                <h2 class="admin-detail__title">選取項目</h2>
+
+                <div id="selectedStudentEmpty" class="admin-detail__empty">
+                    請從上方選擇一張卡片以檢視歌詞與備註。
+                </div>
+
+                <div id="selectedStudentPanel" class="admin-detail__panel" style="display:none;">
+                    <div class="admin-detail__header">
+                        <div>
+                            <div class="admin-detail__name" id="selectedStudentName"></div>
+                            <div class="admin-detail__email" id="selectedStudentEmail"></div>
+                        </div>
+                        <button id="deleteSubmissionBtn" class="btn-secondary admin-detail__delete" type="button">
+                            刪除整份提交
+                        </button>
+                    </div>
+
+                    <div class="admin-hr"></div>
+
+                    <div class="admin-detail__block">
+                        <div class="admin-detail__label">管理員備註</div>
+                        <div id="remarksList" class="admin-detail__remarks"></div>
+                        <div class="admin-detail__remark-add">
+                            <textarea id="newRemarkTextarea" class="admin-textarea admin-textarea--remark" placeholder="為此學生加入備註…"></textarea>
+                            <button id="addRemarkBtn" class="btn-primary" type="button">加入備註</button>
+                        </div>
+                    </div>
+
+                    <div class="admin-detail__block">
+                        <div class="admin-detail__label">歌詞檔案</div>
+                        <div id="studentFilesRow" class="admin-detail__files">
+                            <div id="studentFilesList" class="admin-detail__file-chips"></div>
+                            <div class="admin-detail__file-editor">
+                                <div class="admin-detail__file-editor-head">
+                                    <span class="admin-detail__file-editor-label">檔案名稱</span>
+                                    <button id="addStudentFileBtn" class="btn-primary" type="button">＋新增檔案</button>
+                                </div>
+                                <input id="studentFileNameInput" class="admin-input" type="text" disabled>
+                                <textarea id="studentFileTextarea" class="admin-textarea" disabled></textarea>
+                                <div class="admin-detail__file-actions">
+                                    <button id="saveStudentFileBtn" class="btn-primary" type="button" disabled>儲存檔案</button>
+                                    <button id="deleteStudentFileBtn" class="btn-secondary admin-detail__delete-file" type="button" disabled>
+                                        刪除檔案
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script>
+        (function () {
+            const FOREVER_ADMIN_EMAIL = 'kelvinlee@futureleadersunion.com';
+
+            const firebaseConfig = {
+                apiKey: "AIzaSyDJ3lZzUWcxjJ-0p2tXSeg_FQdbaeZweaA",
+                authDomain: "akeystudio-72188.firebaseapp.com",
+                projectId: "akeystudio-72188",
+                storageBucket: "akeystudio-72188.firebasestorage.app",
+                messagingSenderId: "98179399821",
+                appId: "1:98179399821:web:eb7c53a62b9f456f05a2c4",
+                measurementId: "G-XBZ3XN0RRJ"
+            };
+
+            let firebaseDb = null;
+            let firebaseAuth = null;
+
+            try {
+                const app = firebase.initializeApp(firebaseConfig);
+                firebaseDb = firebase.firestore();
+                firebaseAuth = firebase.auth();
+                window.firebaseDb = firebaseDb;
+                window.firebaseAuth = firebaseAuth;
+            } catch (e) {
+                console.error('Firebase init error:', e);
+            }
+
+            const el = {
+                authCard: document.getElementById('adminAuthCard'),
+                authSession: document.getElementById('adminAuthSession'),
+                dashboardSession: document.getElementById('adminDashboardSession'),
+                appCard: document.getElementById('adminAppCard'),
+                loginForm: document.getElementById('adminLoginForm'),
+                loginEmail: document.getElementById('adminLoginEmail'),
+                loginPassword: document.getElementById('adminLoginPassword'),
+                loginError: document.getElementById('adminLoginError'),
+                googleBtn: document.getElementById('adminGoogleSignInBtn'),
+
+                newAdminEmailInput: document.getElementById('newAdminEmailInput'),
+                addAdminBtn: document.getElementById('addAdminBtn'),
+                adminsTableBody: document.getElementById('adminsTableBody'),
+
+                submissionSearchInput: document.getElementById('submissionSearchInput'),
+                submissionSortSelect: document.getElementById('submissionSortSelect'),
+                submissionDateFilterSelect: document.getElementById('submissionDateFilterSelect'),
+                submissionCardsGrid: document.getElementById('submissionCardsGrid'),
+                submissionCardsEmpty: document.getElementById('submissionCardsEmpty'),
+                dashboardSubmissionCount: document.getElementById('dashboardSubmissionCount'),
+
+                selectedStudentEmpty: document.getElementById('selectedStudentEmpty'),
+                selectedStudentPanel: document.getElementById('selectedStudentPanel'),
+                selectedStudentName: document.getElementById('selectedStudentName'),
+                selectedStudentEmail: document.getElementById('selectedStudentEmail'),
+                deleteSubmissionBtn: document.getElementById('deleteSubmissionBtn'),
+
+                remarksList: document.getElementById('remarksList'),
+                newRemarkTextarea: document.getElementById('newRemarkTextarea'),
+                addRemarkBtn: document.getElementById('addRemarkBtn'),
+
+                studentFilesList: document.getElementById('studentFilesList'),
+                addStudentFileBtn: document.getElementById('addStudentFileBtn'),
+                studentFileNameInput: document.getElementById('studentFileNameInput'),
+                studentFileTextarea: document.getElementById('studentFileTextarea'),
+                saveStudentFileBtn: document.getElementById('saveStudentFileBtn'),
+                deleteStudentFileBtn: document.getElementById('deleteStudentFileBtn'),
+            };
+
+            let currentAdminUser = null;
+            let submissions = [];
+            let selectedSubmission = null; // { uid, data }
+            let selectedFileId = null;
+
+            function setLoginError(msg) {
+                if (!el.loginError) return;
+                el.loginError.textContent = msg;
+                el.loginError.style.display = msg ? 'block' : 'none';
+            }
+
+            function setAdminUserEmailDisplay(text) {
+                document.querySelectorAll('.admin-user-email').forEach(function (n) {
+                    n.textContent = text || '';
+                });
+            }
+
+            function setLogoutButtonsVisible(show) {
+                document.querySelectorAll('.admin-logout-btn').forEach(function (b) {
+                    b.style.display = show ? 'inline-block' : 'none';
+                });
+            }
+
+            function normalizeEmail(email) {
+                return (email || '').trim().toLowerCase();
+            }
+
+            async function isAdminEmail(emailLower) {
+                if (!emailLower) return false;
+                if (emailLower === FOREVER_ADMIN_EMAIL) return true;
+                if (!firebaseDb) return false;
+                const snap = await firebaseDb.collection('admins').doc(emailLower).get();
+                return !!snap.exists;
+            }
+
+            async function requireAdmin() {
+                if (!firebaseAuth || !firebaseDb) throw new Error('Firebase not initialized');
+                const user = firebaseAuth.currentUser;
+                if (!user || !user.email) return null;
+                const emailLower = normalizeEmail(user.email);
+                const ok = await isAdminEmail(emailLower);
+                return ok ? user : null;
+            }
+
+            async function loadAdminsTable() {
+                if (!firebaseDb) return;
+
+                const rows = [];
+                const adminSnap = await firebaseDb.collection('admins').get();
+                adminSnap.forEach(doc => rows.push(doc.data()));
+
+                const foreverRow = {
+                    email: FOREVER_ADMIN_EMAIL,
+                    status: '永久管理員'
+                };
+
+                // Merge: ensure forever is shown even if missing from /admins.
+                const byEmail = {};
+                rows.forEach(r => {
+                    const e = normalizeEmail(r && r.email ? r.email : '');
+                    if (e) byEmail[e] = r;
+                });
+                byEmail[FOREVER_ADMIN_EMAIL] = byEmail[FOREVER_ADMIN_EMAIL] || foreverRow;
+
+                const sortedEmails = Object.keys(byEmail).sort();
+                el.adminsTableBody.innerHTML = '';
+
+                sortedEmails.forEach(emailLower => {
+                    const isForever = emailLower === FOREVER_ADMIN_EMAIL;
+                    const row = byEmail[emailLower] || {};
+                    const tr = document.createElement('tr');
+
+                    const tdEmail = document.createElement('td');
+                    tdEmail.textContent = row.email || emailLower;
+
+                    const tdStatus = document.createElement('td');
+                    tdStatus.textContent = isForever ? '永久' : '已授權';
+
+                    const tdActions = document.createElement('td');
+                    if (isForever) {
+                        tdActions.textContent = 'N/A';
+                    } else {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'btn-secondary';
+                        btn.style.border = '1px solid #c33';
+                        btn.style.color = '#a00';
+                        btn.textContent = '移除';
+                        btn.addEventListener('click', async function () {
+                            if (!confirm('確定要移除這位管理員？')) return;
+                            await firebaseDb.collection('admins').doc(emailLower).delete();
+                            await loadAdminsTable();
+                        });
+                        tdActions.appendChild(btn);
+                    }
+
+                    tr.appendChild(tdEmail);
+                    tr.appendChild(tdStatus);
+                    tr.appendChild(tdActions);
+                    el.adminsTableBody.appendChild(tr);
+                });
+            }
+
+            async function loadSubmissions() {
+                if (!firebaseDb) return;
+                const snap = await firebaseDb.collection('userLyrics').get();
+
+                submissions = snap.docs.map(d => {
+                    const data = d.data() || {};
+                    return {
+                        uid: d.id,
+                        data: data,
+                        studentName: (data.student && data.student.name) ? data.student.name : '',
+                        studentEmail: (data.student && data.student.email) ? data.student.email : '',
+                    };
+                });
+
+                // Sort by updatedAt desc (if present)
+                submissions.sort((a, b) => {
+                    const ta = a.data.updatedAt || '';
+                    const tb = b.data.updatedAt || '';
+                    return tb.localeCompare(ta);
+                });
+
+                renderSubmissionCards();
+            }
+
+            function getSubmissionByUid(uid) {
+                return submissions.find(function (s) { return s.uid === uid; }) || null;
+            }
+
+            function flattenSubmissionsToLyricCards() {
+                const cards = [];
+                submissions.forEach(function (s) {
+                    const files = s.data && s.data.files && typeof s.data.files === 'object' ? s.data.files : {};
+                    const docUpdated = (s.data && s.data.updatedAt) ? s.data.updatedAt : '';
+                    Object.keys(files).forEach(function (fileId) {
+                        const file = files[fileId] || {};
+                        const submittedAt = file.updatedAt || file.createdAt || docUpdated || '';
+                        cards.push({
+                            uid: s.uid,
+                            fileId: fileId,
+                            studentName: s.studentName,
+                            studentEmail: s.studentEmail,
+                            lyricName: file.name ? String(file.name) : fileId,
+                            submittedAt: submittedAt
+                        });
+                    });
+                });
+                return cards;
+            }
+
+            function parseSubmittedAtMs(iso) {
+                if (!iso) return 0;
+                const t = Date.parse(iso);
+                return Number.isNaN(t) ? 0 : t;
+            }
+
+            function formatSubmissionDateTime(iso) {
+                if (!iso) return '—';
+                const d = new Date(iso);
+                if (Number.isNaN(d.getTime())) return String(iso);
+                return d.toLocaleString();
+            }
+
+            function getDateFilterCutoffMs() {
+                const v = el.submissionDateFilterSelect && el.submissionDateFilterSelect.value;
+                if (v === '7d') return Date.now() - 7 * 24 * 60 * 60 * 1000;
+                if (v === '30d') return Date.now() - 30 * 24 * 60 * 60 * 1000;
+                return null;
+            }
+
+            function renderSubmissionCards() {
+                if (!el.submissionCardsGrid) return;
+
+                let cards = flattenSubmissionsToLyricCards();
+                const q = (el.submissionSearchInput && el.submissionSearchInput.value || '').trim().toLowerCase();
+                if (q) {
+                    cards = cards.filter(function (c) {
+                        const name = (c.studentName || '').toLowerCase();
+                        const email = (c.studentEmail || '').toLowerCase();
+                        const uid = (c.uid || '').toLowerCase();
+                        const lyric = (c.lyricName || '').toLowerCase();
+                        return name.includes(q) || email.includes(q) || uid.includes(q) || lyric.includes(q);
+                    });
+                }
+
+                const cutoff = getDateFilterCutoffMs();
+                if (cutoff !== null) {
+                    cards = cards.filter(function (c) {
+                        const ms = parseSubmittedAtMs(c.submittedAt);
+                        return ms >= cutoff;
+                    });
+                }
+
+                const sortMode = el.submissionSortSelect ? el.submissionSortSelect.value : 'submitted-desc';
+                cards.sort(function (a, b) {
+                    if (sortMode === 'submitted-desc' || sortMode === 'submitted-asc') {
+                        const da = parseSubmittedAtMs(a.submittedAt);
+                        const db = parseSubmittedAtMs(b.submittedAt);
+                        return sortMode === 'submitted-desc' ? (db - da) : (da - db);
+                    }
+                    if (sortMode === 'student-asc') {
+                        const sa = (a.studentName || '').toLowerCase();
+                        const sb = (b.studentName || '').toLowerCase();
+                        const cmp = sa.localeCompare(sb, 'zh-Hant');
+                        if (cmp !== 0) return cmp;
+                        return (a.lyricName || '').localeCompare(b.lyricName || '', 'zh-Hant');
+                    }
+                    if (sortMode === 'lyric-asc') {
+                        const la = (a.lyricName || '').toLowerCase();
+                        const lb = (b.lyricName || '').toLowerCase();
+                        const cmp = la.localeCompare(lb, 'zh-Hant');
+                        if (cmp !== 0) return cmp;
+                        return (a.studentName || '').localeCompare(b.studentName || '', 'zh-Hant');
+                    }
+                    return 0;
+                });
+
+                el.submissionCardsGrid.innerHTML = '';
+                if (el.submissionCardsEmpty) {
+                    el.submissionCardsEmpty.style.display = cards.length === 0 ? 'block' : 'none';
+                }
+                if (el.dashboardSubmissionCount) {
+                    el.dashboardSubmissionCount.textContent = String(cards.length);
+                }
+
+                cards.forEach(function (c) {
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = 'admin-lyric-card';
+
+                    const isSelected = selectedSubmission && selectedSubmission.uid === c.uid && selectedFileId === c.fileId;
+                    if (isSelected) card.classList.add('admin-lyric-card--selected');
+
+                    const title = document.createElement('div');
+                    title.className = 'admin-lyric-card__student';
+                    title.textContent = c.studentName || '(未知學生)';
+
+                    const lyric = document.createElement('div');
+                    lyric.className = 'admin-lyric-card__lyric-name';
+                    lyric.textContent = c.lyricName;
+
+                    const meta = document.createElement('div');
+                    meta.className = 'admin-lyric-card__meta';
+                    meta.textContent = c.studentEmail || ('uid: ' + c.uid);
+
+                    const time = document.createElement('div');
+                    time.className = 'admin-lyric-card__time';
+                    time.textContent = '提交：' + formatSubmissionDateTime(c.submittedAt);
+
+                    card.appendChild(title);
+                    card.appendChild(lyric);
+                    card.appendChild(meta);
+                    card.appendChild(time);
+
+                    card.addEventListener('click', function () {
+                        const s = getSubmissionByUid(c.uid);
+                        if (!s) return;
+                        selectedSubmission = s;
+                        selectedFileId = c.fileId;
+                        renderSelectedSubmission();
+                        renderSubmissionCards();
+                    });
+
+                    el.submissionCardsGrid.appendChild(card);
+                });
+            }
+
+            function renderRemarks(remarks) {
+                if (!el.remarksList) return;
+                if (!Array.isArray(remarks) || remarks.length === 0) {
+                    el.remarksList.textContent = '（尚無備註）';
+                    return;
+                }
+
+                const lines = remarks.map(r => {
+                    const text = r && typeof r.text === 'string' ? r.text : String(r || '');
+                    const createdAt = r && r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+                    const by = r && (r.byEmail || r.byName) ? (r.byEmail || r.byName) : '';
+                    const footer = by || createdAt ? ('— ' + [by, createdAt].filter(Boolean).join(' ')) : '';
+                    return text + (footer ? ('\n' + footer) : '');
+                });
+
+                el.remarksList.textContent = lines.join('\n\n');
+            }
+
+            function renderFiles(files) {
+                if (!el.studentFilesList) return;
+                el.studentFilesList.innerHTML = '';
+                const fileEntries = files && typeof files === 'object' ? Object.entries(files) : [];
+
+                if (fileEntries.length === 0) {
+                    el.studentFileNameInput.value = '';
+                    el.studentFileTextarea.value = '';
+                    el.studentFileNameInput.disabled = true;
+                    el.studentFileTextarea.disabled = true;
+                    el.saveStudentFileBtn.disabled = true;
+                    el.deleteStudentFileBtn.disabled = true;
+                    selectedFileId = null;
+                    return;
+                }
+
+                fileEntries.forEach(([fileId, file]) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'admin-chip';
+                    btn.textContent = (file && file.name) ? file.name : fileId;
+                    btn.style.cursor = 'pointer';
+
+                    if (selectedFileId === fileId) {
+                        btn.style.background = '#333';
+                        btn.style.color = '#fff';
+                    }
+
+                    btn.addEventListener('click', function () {
+                        selectedFileId = fileId;
+                        const cur = files[fileId] || {};
+                        el.studentFileNameInput.value = cur.name || '';
+                        el.studentFileTextarea.value = cur.content || '';
+                        el.studentFileNameInput.disabled = false;
+                        el.studentFileTextarea.disabled = false;
+                        el.saveStudentFileBtn.disabled = false;
+                        el.deleteStudentFileBtn.disabled = false;
+                        renderFiles(files);
+                    });
+
+                    el.studentFilesList.appendChild(btn);
+                });
+
+                if (selectedFileId && !files[selectedFileId]) {
+                    selectedFileId = fileEntries[0] ? fileEntries[0][0] : null;
+                }
+                if (selectedFileId && files[selectedFileId]) {
+                    const cur = files[selectedFileId] || {};
+                    el.studentFileNameInput.value = cur.name || '';
+                    el.studentFileTextarea.value = cur.content || '';
+                    el.studentFileNameInput.disabled = false;
+                    el.studentFileTextarea.disabled = false;
+                    el.saveStudentFileBtn.disabled = false;
+                    el.deleteStudentFileBtn.disabled = false;
+                }
+            }
+
+            function renderSelectedSubmission() {
+                if (!selectedSubmission) {
+                    el.selectedStudentEmpty.style.display = 'block';
+                    el.selectedStudentPanel.style.display = 'none';
+                    return;
+                }
+
+                el.selectedStudentEmpty.style.display = 'none';
+                el.selectedStudentPanel.style.display = 'block';
+
+                const name = selectedSubmission.studentName || '(未知學生)';
+                const email = selectedSubmission.studentEmail || '';
+                el.selectedStudentName.textContent = name;
+                el.selectedStudentEmail.textContent = email || ('uid: ' + selectedSubmission.uid);
+
+                renderRemarks(selectedSubmission.data && selectedSubmission.data.remarks ? selectedSubmission.data.remarks : []);
+                renderFiles(selectedSubmission.data && selectedSubmission.data.files ? selectedSubmission.data.files : {});
+            }
+
+            async function refreshSelectedSubmission() {
+                if (!selectedSubmission) return;
+                const uid = selectedSubmission.uid;
+                const doc = await firebaseDb.collection('userLyrics').doc(uid).get();
+                if (!doc.exists) {
+                    selectedSubmission = null;
+                    await loadSubmissions();
+                    renderSelectedSubmission();
+                    return;
+                }
+                const data = doc.data() || {};
+                selectedSubmission = {
+                    uid,
+                    data,
+                    studentName: (data.student && data.student.name) ? data.student.name : '',
+                    studentEmail: (data.student && data.student.email) ? data.student.email : '',
+                };
+                renderSelectedSubmission();
+                renderSubmissionCards();
+            }
+
+            async function addRemarkToSelected() {
+                if (!selectedSubmission || !selectedSubmission.uid) return;
+                const text = (el.newRemarkTextarea.value || '').trim();
+                if (!text) {
+                    alert('請先輸入備註內容。');
+                    return;
+                }
+
+                const uid = selectedSubmission.uid;
+                const docRef = firebaseDb.collection('userLyrics').doc(uid);
+                const doc = await docRef.get();
+                const data = doc.data() || {};
+                const remarks = Array.isArray(data.remarks) ? data.remarks : [];
+
+                const now = new Date().toISOString();
+                const remarkObj = {
+                    text: text,
+                    createdAt: now,
+                    byEmail: currentAdminUser && currentAdminUser.email ? currentAdminUser.email : '',
+                    byName: currentAdminUser && currentAdminUser.displayName ? currentAdminUser.displayName : ''
+                };
+
+                remarks.push(remarkObj);
+                await docRef.set({ remarks: remarks }, { merge: true });
+                el.newRemarkTextarea.value = '';
+                await refreshSelectedSubmission();
+            }
+
+            async function saveSelectedFile() {
+                if (!selectedSubmission || !selectedFileId) return;
+                const uid = selectedSubmission.uid;
+                const docRef = firebaseDb.collection('userLyrics').doc(uid);
+                const doc = await docRef.get();
+                const data = doc.data() || {};
+                const files = (data.files && typeof data.files === 'object') ? data.files : {};
+
+                const file = files[selectedFileId] || {};
+                file.name = (el.studentFileNameInput.value || '').trim() || file.name || '未命名';
+                file.content = el.studentFileTextarea.value || '';
+                file.updatedAt = new Date().toISOString();
+                files[selectedFileId] = file;
+
+                await docRef.set({ files: files, updatedAt: file.updatedAt }, { merge: true });
+                await refreshSelectedSubmission();
+            }
+
+            async function deleteSelectedFile() {
+                if (!selectedSubmission || !selectedFileId) return;
+                if (!confirm('確定要刪除這個歌詞檔案？')) return;
+
+                const uid = selectedSubmission.uid;
+                const docRef = firebaseDb.collection('userLyrics').doc(uid);
+                const doc = await docRef.get();
+                const data = doc.data() || {};
+                const files = (data.files && typeof data.files === 'object') ? data.files : {};
+
+                delete files[selectedFileId];
+                await docRef.set({ files: files, updatedAt: new Date().toISOString() }, { merge: true });
+                selectedFileId = null;
+                await refreshSelectedSubmission();
+            }
+
+            async function addNewFileForSelectedStudent() {
+                if (!selectedSubmission) return;
+                const uid = selectedSubmission.uid;
+                const docRef = firebaseDb.collection('userLyrics').doc(uid);
+                const doc = await docRef.get();
+                const data = doc.data() || {};
+                const files = (data.files && typeof data.files === 'object') ? data.files : {};
+
+                const newId = 'file_' + Date.now();
+                const now = new Date().toISOString();
+                files[newId] = {
+                    name: '新歌詞',
+                    content: '',
+                    updatedAt: now
+                };
+
+                await docRef.set({ files: files, updatedAt: now }, { merge: true });
+                selectedFileId = newId;
+                await refreshSelectedSubmission();
+
+                // Enable textarea for newly created file by selecting it explicitly.
+                el.studentFileNameInput.value = files[newId].name;
+                el.studentFileTextarea.value = '';
+                el.studentFileNameInput.disabled = false;
+                el.studentFileTextarea.disabled = false;
+                el.saveStudentFileBtn.disabled = false;
+                el.deleteStudentFileBtn.disabled = false;
+            }
+
+            async function deleteSelectedSubmission() {
+                if (!selectedSubmission) return;
+                if (!confirm('確定要刪除這位學生的整份提交？')) return;
+                await firebaseDb.collection('userLyrics').doc(selectedSubmission.uid).delete();
+                selectedSubmission = null;
+                selectedFileId = null;
+                await loadSubmissions();
+                renderSelectedSubmission();
+            }
+
+            function wireUIEvents() {
+                if (el.loginForm) {
+                    el.loginForm.addEventListener('submit', async function (e) {
+                        e.preventDefault();
+                        setLoginError('');
+                        try {
+                            const email = (el.loginEmail.value || '').trim();
+                            const password = el.loginPassword.value || '';
+                            if (!email || !password) return;
+                            const res = await firebaseAuth.signInWithEmailAndPassword(email, password);
+                            // onAuthStateChanged will handle admin loading.
+                            return res;
+                        } catch (err) {
+                            setLoginError(err && err.message ? err.message : '登入失敗');
+                        }
+                    });
+                }
+
+                if (el.googleBtn) {
+                    el.googleBtn.addEventListener('click', function () {
+                        const provider = new firebase.auth.GoogleAuthProvider();
+                        firebaseAuth.signInWithPopup(provider).catch(function (err) {
+                            setLoginError(err && err.message ? err.message : 'Google 登入失敗');
+                        });
+                    });
+                }
+
+                document.querySelectorAll('.admin-logout-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        firebaseAuth.signOut().catch(function (err) {
+                            console.error('signOut error:', err);
+                        });
+                    });
+                });
+
+                if (el.addAdminBtn) {
+                    el.addAdminBtn.addEventListener('click', async function () {
+                        const email = normalizeEmail(el.newAdminEmailInput.value || '');
+                        if (!email) {
+                            alert('請輸入管理員電郵。');
+                            return;
+                        }
+                        if (email === FOREVER_ADMIN_EMAIL) {
+                            alert('永久管理員不可重複加入。');
+                            return;
+                        }
+                        const by = currentAdminUser && currentAdminUser.email ? currentAdminUser.email : '';
+                        const now = new Date().toISOString();
+                        await firebaseDb.collection('admins').doc(email).set({
+                            email: email,
+                            createdAt: now,
+                            addedBy: by
+                        }, { merge: true });
+                        el.newAdminEmailInput.value = '';
+                        await loadAdminsTable();
+                    });
+                }
+
+                if (el.submissionSearchInput) {
+                    el.submissionSearchInput.addEventListener('input', function () {
+                        renderSubmissionCards();
+                    });
+                }
+
+                if (el.submissionSortSelect) {
+                    el.submissionSortSelect.addEventListener('change', function () {
+                        renderSubmissionCards();
+                    });
+                }
+
+                if (el.submissionDateFilterSelect) {
+                    el.submissionDateFilterSelect.addEventListener('change', function () {
+                        renderSubmissionCards();
+                    });
+                }
+
+                if (el.addRemarkBtn) {
+                    el.addRemarkBtn.addEventListener('click', function () {
+                        addRemarkToSelected().catch(function (err) {
+                            console.error('addRemark error:', err);
+                            alert('加入備註失敗：' + (err && err.message ? err.message : String(err)));
+                        });
+                    });
+                }
+
+                if (el.saveStudentFileBtn) {
+                    el.saveStudentFileBtn.addEventListener('click', function () {
+                        saveSelectedFile().catch(function (err) {
+                            console.error('save file error:', err);
+                            alert('儲存失敗：' + (err && err.message ? err.message : String(err)));
+                        });
+                    });
+                }
+
+                if (el.deleteStudentFileBtn) {
+                    el.deleteStudentFileBtn.addEventListener('click', function () {
+                        deleteSelectedFile().catch(function (err) {
+                            console.error('delete file error:', err);
+                            alert('刪除失敗：' + (err && err.message ? err.message : String(err)));
+                        });
+                    });
+                }
+
+                if (el.addStudentFileBtn) {
+                    el.addStudentFileBtn.addEventListener('click', function () {
+                        addNewFileForSelectedStudent().catch(function (err) {
+                            console.error('add file error:', err);
+                            alert('新增檔案失敗：' + (err && err.message ? err.message : String(err)));
+                        });
+                    });
+                }
+
+                if (el.deleteSubmissionBtn) {
+                    el.deleteSubmissionBtn.addEventListener('click', function () {
+                        deleteSelectedSubmission().catch(function (err) {
+                            console.error('delete submission error:', err);
+                            alert('刪除失敗：' + (err && err.message ? err.message : String(err)));
+                        });
+                    });
+                }
+            }
+
+            async function bootstrap() {
+                wireUIEvents();
+
+                firebaseAuth.onAuthStateChanged(async function (user) {
+                    currentAdminUser = null;
+                    selectedSubmission = null;
+                    selectedFileId = null;
+                    submissions = [];
+
+                    if (!user) {
+                        el.authCard && (el.authCard.style.display = 'block');
+                        el.appCard && (el.appCard.style.display = 'none');
+                        if (el.authSession) el.authSession.style.display = 'none';
+                        if (el.dashboardSession) el.dashboardSession.style.display = 'none';
+                        setAdminUserEmailDisplay('');
+                        setLogoutButtonsVisible(false);
+                        renderSelectedSubmission();
+                        return;
+                    }
+
+                    // Logged in - show admin cards if authorized.
+                    const emailLower = normalizeEmail(user.email || '');
+                    currentAdminUser = user;
+                    setAdminUserEmailDisplay(user.email || '');
+
+                    const ok = await isAdminEmail(emailLower);
+                    if (!ok) {
+                        el.authCard && (el.authCard.style.display = 'block');
+                        el.appCard && (el.appCard.style.display = 'none');
+                        if (el.authSession) el.authSession.style.display = 'flex';
+                        if (el.dashboardSession) el.dashboardSession.style.display = 'none';
+                        setLogoutButtonsVisible(true);
+                        setLoginError('你沒有管理員權限。');
+                        renderSelectedSubmission();
+                        return;
+                    }
+
+                    setLoginError('');
+                    el.authCard && (el.authCard.style.display = 'none');
+                    el.appCard && (el.appCard.style.display = 'block');
+                    if (el.authSession) el.authSession.style.display = 'none';
+                    if (el.dashboardSession) el.dashboardSession.style.display = 'flex';
+                    setLogoutButtonsVisible(true);
+
+                    await loadAdminsTable();
+                    await loadSubmissions();
+                    renderSelectedSubmission();
+                });
+            }
+
+            // Prevent accidental edits before choosing a file.
+            function disableFileEditor() {
+                if (el.studentFileNameInput) el.studentFileNameInput.disabled = true;
+                if (el.studentFileTextarea) el.studentFileTextarea.disabled = true;
+                if (el.saveStudentFileBtn) el.saveStudentFileBtn.disabled = true;
+                if (el.deleteStudentFileBtn) el.deleteStudentFileBtn.disabled = true;
+            }
+
+            disableFileEditor();
+            bootstrap().catch(function (err) {
+                console.error('admin bootstrap error:', err);
+            });
+        })();
+    </script>
+</body>
+
+</html>
+

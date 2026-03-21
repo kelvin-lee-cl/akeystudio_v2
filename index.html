@@ -61,6 +61,7 @@
                 <li><a href="#theme-words">主題詞語</a></li>
                 <li id="myLyricsMenuItem" style="display: none;"><a href="#my-lyrics" id="myLyricsMenuLink">我的歌詞</a>
                 </li>
+                <li id="adminMenuItem" style="display: none;"><a href="admin.html" id="adminMenuLink">管理員</a></li>
                 <li id="loginMenuItem"><a href="#login" id="loginMenuLink">登入</a></li>
             </ul>
         </div>
@@ -79,11 +80,13 @@
                 </header>
                 <div class="input-section">
                     <form id="lyricForm">
-                        <div class="input-group">
+                        <div class="input-group" id="lyricInputGroup">
                             <div class="input-wrapper">
-                                <input type="text" id="inputDigits" name="inputDigits" placeholder="Halo! 今日想寫一首咩歌？"
-                                    maxlength="3" pattern="[0234]+" required>
-                                <button type="submit" class="send-icon-btn" aria-label="Send">
+                                <input type="text" id="inputDigits" name="inputDigits"
+                                    class="home-phrase-mode"
+                                    placeholder="輸入一句靈感或主題，按傳送生成完整粵語歌詞"
+                                    maxlength="500" autocomplete="off" required>
+                                <button type="submit" class="send-icon-btn" id="sendLyricsBtn" aria-label="傳送">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                                         xmlns="http://www.w3.org/2000/svg">
                                         <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor" />
@@ -93,9 +96,6 @@
                         </div>
 
                         <div class="topic-buttons-container" id="topicButtonsContainer" style="display: none;">
-                            <div class="random-button-container">
-                                <button type="button" id="randomTopicBtn" class="random-topic-btn">🎲 Random</button>
-                            </div>
                             <div class="topic-buttons-grid">
                                 <button type="button" class="topic-btn" data-topic="青春">
                                     <span class="topic-emoji">🌱</span>
@@ -182,6 +182,10 @@
                     <button class="lyrics-panel-close" id="closeMyLyricsModal" type="button" aria-label="關閉">×</button>
                 </div>
                 <div class="lyrics-panel-body lyrics-panel-body-with-files">
+                    <div id="myLyricsRemarkSection" class="my-lyrics-remark" style="display: none;">
+                        <div class="my-lyrics-remark-title">管理員備註</div>
+                        <div id="myLyricsRemarkText" class="my-lyrics-remark-text"></div>
+                    </div>
                     <div class="lyrics-file-dropdown" id="lyricsFileDropdown">
                         <button type="button" class="lyrics-file-dropdown-header" id="lyricsFileDropdownHeader"
                             aria-expanded="false" aria-haspopup="listbox" aria-label="選擇歌詞檔案">
@@ -236,8 +240,8 @@
                             autocomplete="current-password">
                         <p id="loginError" class="auth-error"></p>
                         <button type="submit" class="btn-primary">登入</button>
-                        <p class="auth-extra" style="margin-top: 10px;">
-                            <a href="#" id="forgotPasswordLink">忘記密碼？</a>
+                        <p class="auth-extra auth-forgot-row">
+                            <a href="#" id="forgotPasswordLink" class="auth-forgot-link">忘記密碼？</a>
                         </p>
                         <div id="forgotPasswordBlock" class="auth-form"
                             style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
@@ -253,19 +257,22 @@
                             </div>
                         </div>
                         <div class="auth-divider" style="margin: 20px 0; text-align: center; color: #888;">或</div>
-                        <button type="button" id="googleSignInBtn" class="btn-google"
-                            style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer; font-size: 1em;">
-                            <svg width="20" height="20" viewBox="0 0 24 24">
-                                <path fill="#4285F4"
-                                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                <path fill="#34A853"
-                                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                <path fill="#FBBC05"
-                                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                                <path fill="#EA4335"
-                                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                            </svg>
-                            使用 Google 登入
+                        <button type="button" id="googleSignInBtn" class="btn-google">
+                            <span class="btn-google-inner">
+                                <span class="btn-google-logo" aria-hidden="true">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" focusable="false">
+                                        <path fill="#4285F4"
+                                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                        <path fill="#34A853"
+                                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                        <path fill="#FBBC05"
+                                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                                        <path fill="#EA4335"
+                                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                                    </svg>
+                                </span>
+                                <span class="btn-google-text">使用 Google 登入</span>
+                            </span>
                         </button>
                     </form>
                     <form id="signupForm" class="auth-form" style="display: none;">
@@ -432,6 +439,7 @@
         function switchToChatbotMode() {
             const heroImage = document.getElementById('heroImage');
             const inspirationLines = document.getElementById('inspirationLines');
+            const lyricInputGroupChat = document.getElementById('lyricInputGroup');
             const inputDigits = document.getElementById('inputDigits');
 
             // Change hero image
@@ -444,13 +452,17 @@
                 inspirationLines.style.display = 'none';
             }
 
+            if (lyricInputGroupChat) {
+                lyricInputGroupChat.style.display = '';
+            }
+
             // Change input box to chatbot mode
             if (inputDigits) {
                 inputDigits.placeholder = '輸入你的問題...';
                 inputDigits.removeAttribute('maxlength');
                 inputDigits.removeAttribute('pattern');
                 inputDigits.type = 'text';
-                inputDigits.classList.remove('mode-0243');
+                inputDigits.classList.remove('mode-0243', 'home-phrase-mode');
                 inputDigits.classList.add('chatbot-mode');
             }
         }
@@ -467,7 +479,7 @@
 
         function resetTopicPageToOriginalState() {
             DEFAULT_TOPIC_PAGE_BUTTONS.forEach(function (pair, index) {
-                var buttons = document.querySelectorAll('.topic-btn');
+                var buttons = document.querySelectorAll('#topicButtonsContainer .topic-btn');
                 var button = buttons[index];
                 if (!button) return;
                 button.setAttribute('data-topic', pair.topic);
@@ -492,7 +504,7 @@
             var resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
-            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
+            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             if (typeof resetHeroPosition === 'function') {
@@ -512,6 +524,7 @@
 
             var heroImage = document.getElementById('heroImage');
             var inspirationLines = document.getElementById('inspirationLines');
+            var lyricInputGroup = document.getElementById('lyricInputGroup');
             var topicButtonsContainer = document.getElementById('topicButtonsContainer');
             var inputDigits = document.getElementById('inputDigits');
             var generateBtn = document.getElementById('generateBtn');
@@ -527,6 +540,9 @@
             if (topicButtonsContainer) {
                 topicButtonsContainer.style.display = 'block';
             }
+            if (lyricInputGroup) {
+                lyricInputGroup.style.display = 'none';
+            }
             resetTopicPageToOriginalState();
 
             if (inputDigits) {
@@ -535,7 +551,7 @@
                 inputDigits.removeAttribute('pattern');
                 inputDigits.removeAttribute('required');
                 inputDigits.type = 'text';
-                inputDigits.classList.remove('mode-0243', 'chatbot-mode');
+                inputDigits.classList.remove('mode-0243', 'chatbot-mode', 'home-phrase-mode');
                 inputDigits.classList.add('topic-mode');
                 inputDigits.value = '';
                 inputDigits.disabled = false;
@@ -568,7 +584,7 @@
             const resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
-            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'hero-collapsed-0243');
+            document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             if (typeof resetHeroPosition === 'function') {
@@ -588,6 +604,7 @@
 
             const heroImage = document.getElementById('heroImage');
             const inspirationLines = document.getElementById('inspirationLines');
+            const lyricInputGroup0243 = document.getElementById('lyricInputGroup');
             const topicButtonsContainer = document.getElementById('topicButtonsContainer');
             const inputDigits = document.getElementById('inputDigits');
             const generateBtn = document.getElementById('generateBtn');
@@ -597,6 +614,10 @@
             // Change hero image
             if (heroImage) {
                 heroImage.src = 'asset/image/hero.0243.png';
+            }
+
+            if (lyricInputGroup0243) {
+                lyricInputGroup0243.style.display = '';
             }
 
             // Hide inspiration lines and topic buttons
@@ -614,7 +635,7 @@
                 inputDigits.setAttribute('pattern', '[0-9]*');
                 inputDigits.removeAttribute('required');
                 inputDigits.type = 'text';
-                inputDigits.classList.remove('chatbot-mode', 'topic-mode');
+                inputDigits.classList.remove('chatbot-mode', 'topic-mode', 'home-phrase-mode');
                 inputDigits.classList.add('mode-0243');
                 inputDigits.value = ''; // Clear input
             }
@@ -638,7 +659,7 @@
             if (resultsContainer) resultsContainer.innerHTML = '';
             document.body.classList.remove('results-visible-0243');
             // Reset 0243 “compact hero header” state (set in app.js)
-            document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
+            document.body.classList.remove('results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             // Move hero back to its original position in the header
@@ -659,6 +680,7 @@
 
             const heroImage = document.getElementById('heroImage');
             const inspirationLines = document.getElementById('inspirationLines');
+            const lyricInputGroupHome = document.getElementById('lyricInputGroup');
             const topicButtonsContainer = document.getElementById('topicButtonsContainer');
             const inputDigits = document.getElementById('inputDigits');
             const generateBtn = document.getElementById('generateBtn');
@@ -669,6 +691,10 @@
                 heroImage.src = 'asset/image/hero.png';
             }
 
+            if (lyricInputGroupHome) {
+                lyricInputGroupHome.style.display = '';
+            }
+
             // Show inspiration lines and hide topic buttons
             if (inspirationLines) {
                 inspirationLines.style.display = 'block';
@@ -677,14 +703,15 @@
                 topicButtonsContainer.style.display = 'none';
             }
 
-            // Reset input box to original mode
+            // Reset input box to original mode (home: phrase → full Cantonese song)
             if (inputDigits) {
-                inputDigits.placeholder = 'Halo! 今日想寫一首咩歌？';
-                inputDigits.setAttribute('maxlength', '3');
-                inputDigits.setAttribute('pattern', '[0234]+');
+                inputDigits.placeholder = '輸入一句靈感或主題，按傳送生成完整粵語歌詞';
+                inputDigits.setAttribute('maxlength', '500');
+                inputDigits.removeAttribute('pattern');
                 inputDigits.setAttribute('required', '');
                 inputDigits.type = 'text';
                 inputDigits.classList.remove('chatbot-mode', 'topic-mode', 'mode-0243');
+                inputDigits.classList.add('home-phrase-mode');
                 inputDigits.value = ''; // Clear input
             }
 
@@ -698,101 +725,22 @@
         console.log('✓ HTML script tag reached');
         console.log('Document ready state:', document.readyState);
 
-        // Topic button click handlers
+        // Topic page: clicking a default topic submits and loads 主題詞語 results
         document.addEventListener('DOMContentLoaded', function () {
-            const topicButtons = document.querySelectorAll('.topic-btn');
+            const topicContainer = document.getElementById('topicButtonsContainer');
             const inputDigits = document.getElementById('inputDigits');
+            const lyricForm = document.getElementById('lyricForm');
+            if (!topicContainer || !inputDigits || !lyricForm) return;
 
-            topicButtons.forEach(button => {
-                button.addEventListener('click', function () {
-                    const topic = this.getAttribute('data-topic');
-                    if (inputDigits && topic) {
-                        inputDigits.value = topic;
-                    }
-                });
+            topicContainer.addEventListener('click', function (e) {
+                var btn = e.target.closest('.topic-btn');
+                if (!btn || !topicContainer.contains(btn)) return;
+                var topic = btn.getAttribute('data-topic');
+                if (!topic) return;
+                inputDigits.value = topic;
+                lyricForm.requestSubmit();
             });
-
-            // Random button functionality
-            const randomTopicBtn = document.getElementById('randomTopicBtn');
-            if (randomTopicBtn) {
-                randomTopicBtn.addEventListener('click', function () {
-                    randomizeTopicEmojis();
-                });
-            }
         });
-
-        // Function to randomize topic emojis and topics
-        function randomizeTopicEmojis() {
-            // Pool of topic-emoji pairs with matching meanings
-            const topicEmojiPairs = [
-                { topic: '青春', emoji: '🌱' },
-                { topic: '活力', emoji: '⚡' },
-                { topic: '愛', emoji: '❤️' },
-                { topic: '悲傷', emoji: '😢' },
-                { topic: '失戀', emoji: '💔' },
-                { topic: '開心', emoji: '😊' },
-                { topic: '希望', emoji: '🌟' },
-                { topic: '夢想', emoji: '✨' },
-                { topic: '勇氣', emoji: '💪' },
-                { topic: '自由', emoji: '🕊️' },
-                { topic: '和平', emoji: '🕊️' },
-                { topic: '友誼', emoji: '🤝' },
-                { topic: '家庭', emoji: '👨‍👩‍👧‍👦' },
-                { topic: '思念', emoji: '🌙' },
-                { topic: '回憶', emoji: '📸' },
-                { topic: '成長', emoji: '🌳' },
-                { topic: '冒險', emoji: '🗺️' },
-                { topic: '成功', emoji: '🏆' },
-                { topic: '努力', emoji: '💪' },
-                { topic: '堅持', emoji: '🔥' },
-                { topic: '溫柔', emoji: '🌸' },
-                { topic: '浪漫', emoji: '🌹' },
-                { topic: '熱情', emoji: '🔥' },
-                { topic: '平靜', emoji: '🌊' },
-                { topic: '孤獨', emoji: '🌃' },
-                { topic: '寂寞', emoji: '🌌' },
-                { topic: '憂鬱', emoji: '☁️' },
-                { topic: '憤怒', emoji: '😠' },
-                { topic: '恐懼', emoji: '😨' },
-                { topic: '驚喜', emoji: '🎉' },
-                { topic: '慶祝', emoji: '🎊' },
-                { topic: '感恩', emoji: '🙏' },
-                { topic: '祝福', emoji: '🎁' },
-                { topic: '期待', emoji: '👀' },
-                { topic: '興奮', emoji: '🤩' },
-                { topic: '滿足', emoji: '😌' },
-                { topic: '驕傲', emoji: '🦁' },
-                { topic: '自信', emoji: '💎' },
-                { topic: '智慧', emoji: '🦉' },
-                { topic: '創意', emoji: '🎨' }
-            ];
-
-            // Shuffle the array and pick 6 unique topics
-            const shuffled = [...topicEmojiPairs].sort(() => Math.random() - 0.5);
-            const selectedPairs = shuffled.slice(0, 6);
-
-            const topicButtons = document.querySelectorAll('.topic-btn');
-            topicButtons.forEach((button, index) => {
-                if (index < selectedPairs.length) {
-                    const pair = selectedPairs[index];
-                    const emojiSpan = button.querySelector('.topic-emoji');
-                    const labelSpan = button.querySelector('.topic-label');
-
-                    // Update data-topic attribute
-                    button.setAttribute('data-topic', pair.topic);
-
-                    // Update emoji
-                    if (emojiSpan) {
-                        emojiSpan.textContent = pair.emoji;
-                    }
-
-                    // Update label
-                    if (labelSpan) {
-                        labelSpan.textContent = pair.topic;
-                    }
-                }
-            });
-        }
 
         // Check if elements exist before script loads
         window.addEventListener('DOMContentLoaded', function () {

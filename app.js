@@ -16,57 +16,38 @@ let lyricsCacheData = null;
 let words0243Cache = null;
 
 /**
- * Fetch and parse 0243.txt, return words for the given 2-digit pattern (e.g. "00", "02", "03").
- * @param {string} pattern - Two digits from 0,2,3,4 (e.g. "00", "02")
+ * Fetch 0243.json and return words for the given canonical 2-digit pattern (e.g. "00", "02").
+ * Note: the app normalizes user input digits to canonical patterns using digitToCanonical0243.
+ *
+ * @param {string} pattern - Canonical pattern key (two digits from 0,2,3,4), e.g. "00", "02"
  * @returns {Promise<string[]>} Array of words
  */
 async function get0243WordsForPattern(pattern) {
+    // Guard: only allow canonical keys.
+    if (!/^[0234]{2}$/.test(pattern)) return [];
+
     if (!words0243Cache) {
         try {
             // Try relative to current page (works when served via http(s))
-            let res = await fetch('0243.txt').catch(function () { return null; });
+            let res = await fetch('0243.json').catch(function () { return null; });
             if (!res || !res.ok) {
-                res = await fetch('./0243.txt').catch(function () { return null; });
+                res = await fetch('./0243.json').catch(function () { return null; });
             }
             if (!res || !res.ok) {
                 const isFileProtocol = typeof window !== 'undefined' && window.location && window.location.protocol === 'file:';
                 throw new Error(
                     isFileProtocol
                         ? '無法在 file:// 下載詞庫。請用本地伺服器開啟（例如在專案目錄執行：npx serve 或 python -m http.server 8080）'
-                        : '無法載入 0243.txt（' + (res ? res.status : '網絡錯誤') + '）'
+                        : '無法載入 0243.json（' + (res ? res.status : '網絡錯誤') + '）'
                 );
             }
-            let text = await res.text();
-            // Strip BOM (0243.txt may be saved with UTF-8 BOM, which breaks pattern matching)
-            if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-            const lines = text.split(/\r?\n/);
-            words0243Cache = {};
-            for (let i = 0; i < lines.length; i++) {
-                const rawLine = lines[i];
-                const line = rawLine.replace(/\r$/, '').trim();
-                // Pattern only: "00" or "00  " (words on next line)
-                const matchOnly = line.match(/^(\d{2})\s*$/);
-                // Pattern + words on same line: "00  詞、語、..."
-                const matchWithWords = line.match(/^(\d{2})\s+([\s\S]+)$/);
-                const pat = matchOnly ? matchOnly[1] : (matchWithWords ? matchWithWords[1] : null);
-                if (!pat) continue;
-                let wordsLine = '';
-                if (matchWithWords && matchWithWords[2].trim()) {
-                    wordsLine = matchWithWords[2].trim();
-                } else {
-                    for (let j = i + 1; j < lines.length; j++) {
-                        const next = lines[j].replace(/\r$/, '').trim();
-                        if (next && !/^_+$/.test(next) && !/^\d{2}\s*$/.test(next)) {
-                            wordsLine = next;
-                            break;
-                        }
-                    }
-                }
-                const words = wordsLine ? wordsLine.split(/[、，]/).map(w => w.trim()).filter(Boolean) : [];
-                words0243Cache[pat] = words;
+
+            words0243Cache = await res.json();
+            if (!words0243Cache || typeof words0243Cache !== 'object' || Array.isArray(words0243Cache)) {
+                words0243Cache = {};
             }
         } catch (err) {
-            console.error('Error loading 0243.txt:', err);
+            console.error('Error loading 0243.json:', err);
             words0243Cache = {};
             throw err;
         }
@@ -250,6 +231,8 @@ document.addEventListener('DOMContentLoaded', function () {
         regenerateBtn.addEventListener('click', function () {
             if (window.currentResult && window.currentResult.topicModeWords) {
                 handleTopicRegenerate();
+            } else if (window.currentResult && window.currentResult.fullSongMode) {
+                handleFullSongRegenerate();
             } else {
                 openRegenerateModal();
             }
@@ -258,6 +241,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Regenerate modal handlers
     setupRegenerateModal();
+
+    setupResultsBoxCopy();
 
     // View JSON button
     const viewJsonBtn = document.getElementById('viewJsonBtn');
@@ -509,7 +494,7 @@ const digitToCanonical0243 = {
     '4': '4', '5': '4', '8': '4'
 };
 
-/** Normalize 0243 input (e.g. "19" → "33") for lookup in 0243.txt */
+/** Normalize 0243 input (e.g. "19" → "33") for lookup in 0243.json */
 function normalize0243Input(input) {
     if (!/^[0-9]{2}$/.test(input)) return null;
     const a = digitToCanonical0243[input[0]];
@@ -724,6 +709,73 @@ async function generateTopicRelatedWordsDeepseek(topic, count = 6) {
     return cleaned.slice(0, n);
 }
 
+/** Cache key for home-page full Cantonese song from a user phrase. */
+function fullSongCacheKey(phrase) {
+    return 'fullSong:' + String(phrase).trim();
+}
+
+/**
+ * Ask DeepSeek for complete Cantonese song lyrics inspired by the user's phrase.
+ * Returns plain text (繁體中文), section labels optional.
+ */
+async function generateFullSongCantoneseDeepseek(userPhrase) {
+    const phrase = String(userPhrase || '').trim();
+    if (!phrase) {
+        throw new Error('請輸入一句靈感或主題。');
+    }
+    const prompt =
+        '你係粵語填詞人。用戶嘅靈感／主題如下：\n\n' +
+        phrase +
+        '\n\n' +
+        '請寫一首完整嘅粵語歌詞（繁體中文）。優先用自然、地道嘅粵語口語同書面語，適合流行曲。\n' +
+        '必須包括：歌名一行、至少一段主歌、副歌（可重複一次令成首歌完整）、可選 Bridge。\n' +
+        '用【歌名】【主歌】【副歌】【Bridge】等標籤分節。\n' +
+        '只輸出歌詞同標籤，唔好加英文解說、唔好用 Markdown 代碼格。';
+
+    const response = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + DEEPSEEK_API_KEY
+        },
+        body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.85,
+            max_tokens: 4096
+        })
+    }).catch(function (err) {
+        throw new Error('Network error: ' + (err && err.message ? err.message : String(err)));
+    });
+
+    if (!response.ok) {
+        throw new Error('API error: ' + response.status + ' ' + response.statusText);
+    }
+
+    const data = await response.json();
+    const content =
+        data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content
+            ? String(data.choices[0].message.content).trim()
+            : '';
+    if (!content) {
+        throw new Error('API 沒有返回歌詞內容');
+    }
+    return content;
+}
+
+function setHomePhraseUiLoading(isLoading) {
+    const sendLyricsBtn = document.getElementById('sendLyricsBtn');
+    const inputDigits = document.getElementById('inputDigits');
+    if (sendLyricsBtn) {
+        sendLyricsBtn.disabled = !!isLoading;
+        sendLyricsBtn.classList.toggle('is-loading', !!isLoading);
+        sendLyricsBtn.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+    }
+    if (inputDigits) {
+        inputDigits.disabled = !!isLoading;
+    }
+}
+
 // Handle form submission
 async function handleFormSubmit(event) {
     event.preventDefault();
@@ -743,7 +795,7 @@ async function handleFormSubmit(event) {
         errorMessage.style.display = 'none';
     }
 
-    // Check if it's 0243 page mode (lookup words from 0243.txt only)
+    // Check if it's 0243 page mode (lookup words from 0243.json)
     // Accept 2 digits 0–9: 1＝3＝9, 4＝5＝8, 2＝6, 0＝0
     const is0243Mode = inputDigits.classList.contains('mode-0243');
     if (is0243Mode && /^[0-9]{2}$/.test(input)) {
@@ -853,6 +905,48 @@ async function handleFormSubmit(event) {
         return;
     }
 
+    // Home page: free phrase → full Cantonese song (DeepSeek)
+    const isHomePhraseMode = inputDigits.classList.contains('home-phrase-mode');
+    if (isHomePhraseMode) {
+        const phrase = input;
+        if (!phrase) {
+            showError('請輸入一句靈感或主題。');
+            return;
+        }
+        const cacheKey = fullSongCacheKey(phrase);
+        setHomePhraseUiLoading(true);
+        try {
+            let result = await getCachedResult(cacheKey);
+            if (!result || !result.fullSongMode || typeof result.songLyrics !== 'string' || !result.songLyrics.trim()) {
+                const songLyrics = await generateFullSongCantoneseDeepseek(phrase);
+                result = {
+                    fullSongMode: true,
+                    userPhrase: phrase,
+                    input: cacheKey,
+                    songLyrics,
+                    input_length: phrase.length
+                };
+                await saveToCache(cacheKey, result);
+            }
+            displayResults(result);
+            if (resultsSection) {
+                resultsSection.style.display = 'block';
+                resultsSection.scrollTop = 0;
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                document.body.classList.add('results-visible-fullsong');
+                document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243', 'results-visible-0243');
+                document.body.dataset.lastResultMode = 'fullsong';
+                moveHeroNextToInput();
+            }
+        } catch (error) {
+            console.error('Full song error:', error);
+            showError(error && error.message ? error.message : '無法生成歌詞，請稍後再試。');
+        } finally {
+            setHomePhraseUiLoading(false);
+        }
+        return;
+    }
+
     // Non–topic mode: digit patterns for tone lyrics
     // Allow 2 digits 0–9 (normalized to 0,2,3,4) or 2–3 digits 0,2,3,4
     if (/^[0-9]{2}$/.test(actualInput)) {
@@ -922,7 +1016,7 @@ async function handleFormSubmit(event) {
             document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
             try {
                 delete document.body.dataset.lastResultMode;
-            } catch (e) {}
+            } catch (e) { }
         }
     } catch (error) {
         console.error('Error generating lyrics:', error);
@@ -941,8 +1035,47 @@ function displayResults(result) {
     if (!resultsContainer) return;
 
     resultsContainer.innerHTML = '';
+    clearResultCopySelection();
     const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) regenerateBtn.style.display = 'none';
+
+    // Home: full Cantonese song (plain text)
+    if (result.fullSongMode && typeof result.songLyrics === 'string' && result.songLyrics.trim()) {
+        if (regenerateBtn) {
+            regenerateBtn.style.display = 'inline-flex';
+            regenerateBtn.textContent = '🔄 重新生成';
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'pattern-group full-song-result';
+        const patternHeader = document.createElement('div');
+        patternHeader.className = 'pattern-header';
+        const safePhrase = String(result.userPhrase || '').replace(/</g, '&lt;');
+        patternHeader.innerHTML =
+            '<h3>粵語歌詞</h3><p class="pattern-mapping-hint">靈感：' + safePhrase + '</p>';
+        wrap.appendChild(patternHeader);
+        const pre = document.createElement('pre');
+        pre.className = 'full-song-lyrics';
+        pre.textContent = result.songLyrics.trim();
+        wrap.appendChild(pre);
+        const copyRow = document.createElement('div');
+        copyRow.className = 'full-song-copy-row';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'copy-btn';
+        copyBtn.textContent = '📋 複製全文';
+        copyBtn.addEventListener('click', function () {
+            const t = result.songLyrics.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(t).catch(function () { });
+            }
+        });
+        copyRow.appendChild(copyBtn);
+        wrap.appendChild(copyRow);
+        resultsContainer.appendChild(wrap);
+        window.currentResult = result;
+        updateJsonOutput(result);
+        return;
+    }
 
     // Topic words mode: show 主題詞語 boxes only, no tone patterns
     if (result.topicModeWords && Array.isArray(result.relatedWords) && result.relatedWords.length > 0) {
@@ -957,14 +1090,16 @@ function displayResults(result) {
         patternHeader.innerHTML =
             '<h3>主題：' +
             String(result.topic || '').replace(/</g, '&lt;') +
-            '</h3><p class="pattern-mapping-hint">與主題相關的主題詞語</p>';
+            '</h3><p class="pattern-mapping-hint">與主題相關的主題詞語（點擊方格複製該詞）</p>';
         wrap.appendChild(patternHeader);
         const grid = document.createElement('div');
         grid.className = 'topic-buttons-grid topic-buttons-grid--results';
         result.relatedWords.slice(0, 6).forEach(function (word) {
             const btn = document.createElement('div');
             btn.className = 'topic-btn topic-btn--result-word';
-            btn.setAttribute('role', 'presentation');
+            btn.setAttribute('role', 'button');
+            btn.setAttribute('tabindex', '0');
+            btn.setAttribute('aria-label', '複製詞語：' + word);
             const label = document.createElement('span');
             label.className = 'topic-label';
             label.textContent = word;
@@ -999,6 +1134,9 @@ function displayResults(result) {
         if (wordsOnly && result.canonicalPattern && result.input && result.input !== result.canonicalPattern) {
             headerHtml += `<p class="pattern-mapping-hint">你輸入 ${result.input} → 對應 ${result.canonicalPattern}</p>`;
         }
+        if (wordsOnly) {
+            headerHtml += '<p class="pattern-mapping-hint">點擊方格複製該詞</p>';
+        }
         patternHeader.innerHTML = headerHtml;
         patternDiv.appendChild(patternHeader);
 
@@ -1010,10 +1148,19 @@ function displayResults(result) {
         } else {
             const phrasesList = document.createElement('div');
             phrasesList.className = 'phrases-list';
+            if (wordsOnly) {
+                phrasesList.classList.add('phrases-list--0243');
+            }
 
             phrases.forEach(phraseData => {
                 const phraseDiv = document.createElement('div');
                 phraseDiv.className = 'phrase-box';
+                if (wordsOnly) {
+                    const pw = phraseData.phrase || '';
+                    phraseDiv.setAttribute('tabindex', '0');
+                    phraseDiv.setAttribute('role', 'button');
+                    phraseDiv.setAttribute('aria-label', '複製詞語：' + pw);
+                }
 
                 const phraseWord = document.createElement('div');
                 phraseWord.className = 'phrase-word';
@@ -1207,6 +1354,129 @@ function showError(message) {
     }
 }
 
+let copyToastHideTimer = null;
+let lastCopiedResultBox = null;
+
+function copyTextToClipboard(text) {
+    const s = String(text);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        return navigator.clipboard.writeText(s);
+    }
+    return new Promise(function (resolve, reject) {
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            if (document.execCommand('copy')) resolve();
+            else reject(new Error('execCommand copy failed'));
+        } catch (err) {
+            reject(err);
+        } finally {
+            document.body.removeChild(ta);
+        }
+    });
+}
+
+function truncateForToast(s, maxLen) {
+    const t = String(s).trim();
+    if (t.length <= maxLen) return t;
+    return t.slice(0, maxLen) + '…';
+}
+
+/**
+ * Toast after copying a word from 0243 / 主題詞語 result boxes.
+ * @param {string} copiedText - full string that was copied
+ * @param {boolean} [isError] - show error styling
+ */
+function showCopyToast(copiedText, isError) {
+    let el = document.getElementById('copyToast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'copyToast';
+        el.className = 'copy-toast';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        document.body.appendChild(el);
+    }
+    const display = truncateForToast(copiedText, 48);
+    el.textContent = isError
+        ? display
+        : '已複製：「' + display + '」';
+    el.classList.toggle('copy-toast--error', !!isError);
+    el.classList.add('copy-toast--visible');
+    clearTimeout(copyToastHideTimer);
+    copyToastHideTimer = setTimeout(function () {
+        el.classList.remove('copy-toast--visible');
+    }, isError ? 3200 : 2600);
+}
+
+function clearResultCopySelection() {
+    if (lastCopiedResultBox) {
+        lastCopiedResultBox.classList.remove('result-word-copy-active');
+        lastCopiedResultBox = null;
+    }
+}
+
+function setupResultsBoxCopy() {
+    const resultsContainer = document.getElementById('resultsContainer');
+    if (!resultsContainer) return;
+
+    function extractCopyTextFromTarget(target) {
+        const topicBox = target.closest('.topic-btn--result-word');
+        const phraseBox = target.closest('.phrases-list--0243 .phrase-box');
+        if (topicBox) {
+            const label = topicBox.querySelector('.topic-label');
+            return label ? label.textContent.trim() : '';
+        }
+        if (phraseBox) {
+            const wordEl = phraseBox.querySelector('.phrase-word');
+            return wordEl ? wordEl.textContent.trim() : '';
+        }
+        return '';
+    }
+
+    function copyFromTarget(target) {
+        const text = extractCopyTextFromTarget(target);
+        if (!text) return;
+
+        clearResultCopySelection();
+        copyTextToClipboard(text)
+            .then(function () {
+                const topicBox = target.closest('.topic-btn--result-word');
+                const phraseBox = target.closest('.phrases-list--0243 .phrase-box');
+                lastCopiedResultBox = topicBox || phraseBox;
+                if (lastCopiedResultBox) {
+                    lastCopiedResultBox.classList.add('result-word-copy-active');
+                }
+                showCopyToast(text);
+            })
+            .catch(function () {
+                showCopyToast('無法複製到剪貼簿，請重試。', true);
+            });
+    }
+
+    resultsContainer.addEventListener('click', function (e) {
+        copyFromTarget(e.target);
+    });
+
+    resultsContainer.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const focusEl = e.target;
+        if (
+            !focusEl.closest('.topic-btn--result-word') &&
+            !focusEl.closest('.phrases-list--0243 .phrase-box')
+        ) {
+            return;
+        }
+        e.preventDefault();
+        copyFromTarget(focusEl);
+    });
+}
+
 // Setup regenerate modal
 function setupRegenerateModal() {
     const regenerateBtn = document.getElementById('regenerateBtn');
@@ -1345,6 +1615,33 @@ async function handleRegenerate() {
         if (btnText) btnText.style.display = 'inline';
         if (btnLoader) btnLoader.style.display = 'none';
         generateBtn.disabled = false;
+    }
+}
+
+// Regenerate full Cantonese song (bypass cache for same phrase)
+async function handleFullSongRegenerate() {
+    if (!window.currentResult || !window.currentResult.fullSongMode || !window.currentResult.userPhrase) return;
+    const phrase = window.currentResult.userPhrase;
+    const cacheKey = fullSongCacheKey(phrase);
+    const regenerateBtn = document.getElementById('regenerateBtn');
+    if (regenerateBtn) regenerateBtn.disabled = true;
+    setHomePhraseUiLoading(true);
+    try {
+        delete memoryCache[cacheKey];
+        try {
+            localStorage.removeItem('lyrics_' + cacheKey);
+        } catch (e) { /* ignore */ }
+        const songLyrics = await generateFullSongCantoneseDeepseek(phrase);
+        window.currentResult.songLyrics = songLyrics;
+        window.currentResult.input = cacheKey;
+        await saveToCache(cacheKey, window.currentResult);
+        displayResults(window.currentResult);
+    } catch (e) {
+        console.error('Full song regenerate:', e);
+        showError(e && e.message ? e.message : '無法重新生成，請稍後再試。');
+    } finally {
+        setHomePhraseUiLoading(false);
+        if (regenerateBtn) regenerateBtn.disabled = false;
     }
 }
 
@@ -1753,6 +2050,9 @@ async function openMyLyricsModal() {
     loadMyLyricsFromLocalStorage();
     await loadMyLyricsFromFirebase();
 
+    // Render any admin remark stored on this user's submission doc
+    renderMyLyricsRemarks(window.currentMyLyricsRemarks);
+
     var data = getMyLyricsData();
     if (Object.keys(data.files || {}).length === 0) {
         addMyLyricsFile();
@@ -1781,6 +2081,27 @@ function closeMyLyricsModal() {
     }
 }
 
+function renderMyLyricsRemarks(remarks) {
+    const section = document.getElementById('myLyricsRemarkSection');
+    const textEl = document.getElementById('myLyricsRemarkText');
+    if (!section || !textEl) return;
+
+    if (!Array.isArray(remarks) || remarks.length === 0) {
+        section.style.display = 'none';
+        textEl.textContent = '';
+        return;
+    }
+
+    const latest = remarks[remarks.length - 1];
+    const latestText = latest && typeof latest === 'object' && typeof latest.text === 'string' ? latest.text : String(latest || '');
+    const createdAt = latest && typeof latest === 'object' && latest.createdAt ? new Date(latest.createdAt).toLocaleString() : '';
+    const by = latest && typeof latest === 'object' ? (latest.byEmail || latest.byName || '') : '';
+
+    const footer = (by || createdAt) ? '— ' + [by, createdAt].filter(Boolean).join(' ') : '';
+    textEl.textContent = latestText + (footer ? '\n\n' + footer : '');
+    section.style.display = 'block';
+}
+
 function loadMyLyricsFromLocalStorage() {
     getMyLyricsData(); // ensures migration from legacy single lyric if needed
     console.log('✓ Loaded lyrics from localStorage');
@@ -1799,9 +2120,12 @@ async function loadMyLyricsFromFirebase() {
         var docSnap = await docRef.get();
         if (!docSnap.exists()) {
             console.log('No lyrics found in Firebase for this user');
+            window.currentMyLyricsRemarks = null;
             return;
         }
         var data = docSnap.data();
+        // Used by the student panel to show the latest admin remark (if any).
+        window.currentMyLyricsRemarks = Array.isArray(data && data.remarks) ? data.remarks : null;
         var firebaseFiles = data.files;
         var firebaseUpdatedAt = data.updatedAt || '';
         if (!firebaseFiles || typeof firebaseFiles !== 'object') {
@@ -1865,7 +2189,12 @@ async function saveMyLyricsToFirebase() {
 
         await db.collection('userLyrics').doc(user.uid).set({
             files: data.files,
-            updatedAt: timestamp
+            updatedAt: timestamp,
+            student: {
+                // Stored so the admin page can show student name/email.
+                name: user.displayName || '',
+                email: user.email || ''
+            }
         }, { merge: true });
 
         setMyLyricsData(data);
@@ -2100,6 +2429,7 @@ function updateLoginUI(user) {
     var loginUserEmail = document.getElementById('loginUserEmail');
     var signOutBtn = document.getElementById('signOutBtn');
     var myLyricsMenuItem = document.getElementById('myLyricsMenuItem');
+    var adminMenuItem = document.getElementById('adminMenuItem');
 
     if (!loginLink) return;
 
@@ -2111,6 +2441,26 @@ function updateLoginUI(user) {
         if (signOutBtn) signOutBtn.style.display = 'block';
         if (loginFormContainer) loginFormContainer.style.display = 'none';
         if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'list-item';
+
+        if (adminMenuItem) {
+            adminMenuItem.style.display = 'none';
+            var FOREVER_ADMIN_EMAIL = 'kelvinlee@futureleadersunion.com';
+            var emailLower = (user.email || '').trim().toLowerCase();
+            if (emailLower && emailLower === FOREVER_ADMIN_EMAIL) {
+                adminMenuItem.style.display = 'list-item';
+            } else if (emailLower && window.firebaseDb) {
+                // If Firestore denies access, treat as non-admin.
+                window.firebaseDb.collection('admins').doc(emailLower).get()
+                    .then(function (docSnap) {
+                        if (!adminMenuItem) return;
+                        adminMenuItem.style.display = (docSnap && docSnap.exists) ? 'list-item' : 'none';
+                    })
+                    .catch(function () {
+                        if (!adminMenuItem) return;
+                        adminMenuItem.style.display = 'none';
+                    });
+            }
+        }
     } else {
         loginLink.textContent = '登入';
         loginLink.href = '#login';
@@ -2119,6 +2469,7 @@ function updateLoginUI(user) {
         if (signOutBtn) signOutBtn.style.display = 'none';
         if (loginFormContainer) loginFormContainer.style.display = 'block';
         if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'none';
+        if (adminMenuItem) adminMenuItem.style.display = 'none';
     }
 }
 
