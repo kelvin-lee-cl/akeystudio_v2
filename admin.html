@@ -10,10 +10,14 @@
 
 <body class="admin-body">
     <div class="admin-page">
+        <nav class="admin-top-nav" aria-label="頁面導覽">
+            <a href="index.html" class="admin-back-home">← 返回首頁</a>
+        </nav>
         <div id="adminAuthCard" class="admin-auth-card admin-card">
             <div id="adminAuthSession" class="admin-auth-session" style="display:none;" aria-label="目前帳戶">
                 <span class="admin-chip admin-user-email"></span>
-                <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn" style="display:none;">登出</button>
+                <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn"
+                    style="display:none;">登出</button>
             </div>
             <h2 class="admin-auth-card__title">管理員登入</h2>
             <p class="admin-auth-card__lead">請使用已被授權的帳號登入。沒有權限將無法查看資料。</p>
@@ -43,7 +47,8 @@
                         <input id="newAdminEmailInput" class="admin-input" type="email" placeholder="以電郵加入管理員">
                         <button id="addAdminBtn" class="btn-primary" type="button">加入</button>
                     </div>
-                    <div id="foreverAdminHint" class="admin-badge-warn">內建永久管理員：kelvinlee@futureleadersunion.com（不可移除）</div>
+                    <div id="foreverAdminHint" class="admin-badge-warn">內建永久管理員：kelvinlee@futureleadersunion.com（不可移除）
+                    </div>
                     <div class="admin-hr"></div>
                     <div class="admin-table-wrap">
                         <table class="admin-table">
@@ -71,15 +76,18 @@
                             <span id="dashboardSubmissionCount" class="admin-dashboard__stat-value">0</span>
                             <span class="admin-dashboard__stat-label">份歌詞</span>
                         </div>
-                        <div id="adminDashboardSession" class="admin-dashboard__session" style="display:none;" aria-label="目前帳戶">
+                        <div id="adminDashboardSession" class="admin-dashboard__session" style="display:none;"
+                            aria-label="目前帳戶">
                             <span class="admin-chip admin-user-email"></span>
-                            <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn" style="display:none;">登出</button>
+                            <button type="button" class="btn-secondary admin-btn-logout admin-logout-btn"
+                                style="display:none;">登出</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="admin-dashboard-toolbar">
-                    <input id="submissionSearchInput" class="admin-input admin-dashboard-toolbar__search" type="search" placeholder="搜尋：學生姓名、電郵、歌詞名稱…" autocomplete="off">
+                    <input id="submissionSearchInput" class="admin-input admin-dashboard-toolbar__search" type="search"
+                        placeholder="搜尋：學生姓名、電郵、歌詞名稱…" autocomplete="off">
                     <label class="admin-toolbar-label">
                         <span>排序</span>
                         <select id="submissionSortSelect" class="admin-select">
@@ -101,6 +109,21 @@
 
                 <div id="submissionCardsEmpty" class="admin-lyrics-empty" style="display:none;">沒有符合條件的歌詞，或尚無學生提交。</div>
                 <div id="submissionCardsGrid" class="admin-dashboard-cards-grid"></div>
+            </section>
+
+            <section id="adminLyricPreviewSection" class="admin-lyric-preview admin-card" style="display:none;"
+                aria-live="polite">
+                <div class="admin-lyric-preview__head">
+                    <h2 class="admin-lyric-preview__heading">完整歌詞</h2>
+                    <div id="adminLyricPreviewMeta" class="admin-lyric-preview__meta"></div>
+                    <div id="adminLyricPreviewFileName" class="admin-lyric-preview__filename"></div>
+                </div>
+                <div id="adminLyricPreviewAudioBlock" class="admin-lyric-preview__audio-block" style="display:none;">
+                    <div class="admin-detail__label">錄音播放</div>
+                    <audio id="adminLyricPreviewAudio" class="admin-lyric-preview__audio" controls
+                        preload="metadata"></audio>
+                </div>
+                <pre id="adminLyricPreviewBody" class="admin-lyric-preview__body"></pre>
             </section>
 
             <section class="admin-detail admin-card">
@@ -127,31 +150,13 @@
                         <div class="admin-detail__label">管理員備註</div>
                         <div id="remarksList" class="admin-detail__remarks"></div>
                         <div class="admin-detail__remark-add">
-                            <textarea id="newRemarkTextarea" class="admin-textarea admin-textarea--remark" placeholder="為此學生加入備註…"></textarea>
+                            <textarea id="newRemarkTextarea" class="admin-textarea admin-textarea--remark"
+                                placeholder="備註會對應下方目前選取的歌詞檔案（請先點選檔案標籤）。舊備註未標檔案者，學生在所有歌詞皆會看到。"></textarea>
                             <button id="addRemarkBtn" class="btn-primary" type="button">加入備註</button>
                         </div>
                     </div>
 
-                    <div class="admin-detail__block">
-                        <div class="admin-detail__label">歌詞檔案</div>
-                        <div id="studentFilesRow" class="admin-detail__files">
-                            <div id="studentFilesList" class="admin-detail__file-chips"></div>
-                            <div class="admin-detail__file-editor">
-                                <div class="admin-detail__file-editor-head">
-                                    <span class="admin-detail__file-editor-label">檔案名稱</span>
-                                    <button id="addStudentFileBtn" class="btn-primary" type="button">＋新增檔案</button>
-                                </div>
-                                <input id="studentFileNameInput" class="admin-input" type="text" disabled>
-                                <textarea id="studentFileTextarea" class="admin-textarea" disabled></textarea>
-                                <div class="admin-detail__file-actions">
-                                    <button id="saveStudentFileBtn" class="btn-primary" type="button" disabled>儲存檔案</button>
-                                    <button id="deleteStudentFileBtn" class="btn-secondary admin-detail__delete-file" type="button" disabled>
-                                        刪除檔案
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+
                 </div>
             </section>
         </div>
@@ -209,6 +214,13 @@
                 submissionCardsGrid: document.getElementById('submissionCardsGrid'),
                 submissionCardsEmpty: document.getElementById('submissionCardsEmpty'),
                 dashboardSubmissionCount: document.getElementById('dashboardSubmissionCount'),
+
+                lyricPreviewSection: document.getElementById('adminLyricPreviewSection'),
+                lyricPreviewMeta: document.getElementById('adminLyricPreviewMeta'),
+                lyricPreviewFileName: document.getElementById('adminLyricPreviewFileName'),
+                lyricPreviewBody: document.getElementById('adminLyricPreviewBody'),
+                lyricPreviewAudio: document.getElementById('adminLyricPreviewAudio'),
+                lyricPreviewAudioBlock: document.getElementById('adminLyricPreviewAudioBlock'),
 
                 selectedStudentEmpty: document.getElementById('selectedStudentEmpty'),
                 selectedStudentPanel: document.getElementById('selectedStudentPanel'),
@@ -497,8 +509,57 @@
                 });
             }
 
-            function renderRemarks(remarks) {
+            function renderLyricPreview() {
+                const section = el.lyricPreviewSection;
+                if (!section) return;
+
+                if (!selectedSubmission || !selectedFileId) {
+                    section.style.display = 'none';
+                    if (el.lyricPreviewAudio) {
+                        el.lyricPreviewAudio.removeAttribute('src');
+                        try { el.lyricPreviewAudio.load(); } catch (e) { }
+                    }
+                    return;
+                }
+
+                const files = selectedSubmission.data && selectedSubmission.data.files ? selectedSubmission.data.files : {};
+                const file = files[selectedFileId] || {};
+                const name = file.name ? String(file.name) : selectedFileId;
+                const content = typeof file.content === 'string' ? file.content : '';
+                const docUpdated = selectedSubmission.data && selectedSubmission.data.updatedAt ? selectedSubmission.data.updatedAt : '';
+                const submittedAt = file.updatedAt || file.createdAt || docUpdated || '';
+                const stuName = selectedSubmission.studentName || '(未知學生)';
+                const stuEmail = selectedSubmission.studentEmail || '';
+                if (el.lyricPreviewMeta) {
+                    const timeStr = submittedAt ? formatSubmissionDateTime(submittedAt) : '—';
+                    el.lyricPreviewMeta.textContent = [
+                        '姓名：' + stuName,
+                        '電郵：' + (stuEmail || '—'),
+                        '提交時間：' + timeStr
+                    ].join('\n');
+                }
+                if (el.lyricPreviewFileName) el.lyricPreviewFileName.textContent = name;
+                if (el.lyricPreviewBody) el.lyricPreviewBody.textContent = content || '（尚無歌詞內容）';
+
+                const url = file.audioUrl ? String(file.audioUrl) : '';
+                if (el.lyricPreviewAudio && el.lyricPreviewAudioBlock) {
+                    if (url) {
+                        el.lyricPreviewAudio.src = url;
+                        try { el.lyricPreviewAudio.load(); } catch (e) { }
+                        el.lyricPreviewAudioBlock.style.display = 'block';
+                    } else {
+                        el.lyricPreviewAudio.removeAttribute('src');
+                        try { el.lyricPreviewAudio.load(); } catch (e) { }
+                        el.lyricPreviewAudioBlock.style.display = 'none';
+                    }
+                }
+
+                section.style.display = 'block';
+            }
+
+            function renderRemarks(remarks, files) {
                 if (!el.remarksList) return;
+                const fileMap = files && typeof files === 'object' ? files : {};
                 if (!Array.isArray(remarks) || remarks.length === 0) {
                     el.remarksList.textContent = '（尚無備註）';
                     return;
@@ -509,7 +570,12 @@
                     const createdAt = r && r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
                     const by = r && (r.byEmail || r.byName) ? (r.byEmail || r.byName) : '';
                     const footer = by || createdAt ? ('— ' + [by, createdAt].filter(Boolean).join(' ')) : '';
-                    return text + (footer ? ('\n' + footer) : '');
+                    let scopeLine = '【全部歌詞】';
+                    if (r && r.fileId) {
+                        const fn = fileMap[r.fileId];
+                        scopeLine = '【歌詞：' + (fn && fn.name ? String(fn.name) : r.fileId) + '】';
+                    }
+                    return scopeLine + '\n' + text + (footer ? ('\n' + footer) : '');
                 });
 
                 el.remarksList.textContent = lines.join('\n\n');
@@ -528,6 +594,7 @@
                     el.saveStudentFileBtn.disabled = true;
                     el.deleteStudentFileBtn.disabled = true;
                     selectedFileId = null;
+                    renderLyricPreview();
                     return;
                 }
 
@@ -570,12 +637,15 @@
                     el.saveStudentFileBtn.disabled = false;
                     el.deleteStudentFileBtn.disabled = false;
                 }
+
+                renderLyricPreview();
             }
 
             function renderSelectedSubmission() {
                 if (!selectedSubmission) {
                     el.selectedStudentEmpty.style.display = 'block';
                     el.selectedStudentPanel.style.display = 'none';
+                    renderLyricPreview();
                     return;
                 }
 
@@ -587,8 +657,12 @@
                 el.selectedStudentName.textContent = name;
                 el.selectedStudentEmail.textContent = email || ('uid: ' + selectedSubmission.uid);
 
-                renderRemarks(selectedSubmission.data && selectedSubmission.data.remarks ? selectedSubmission.data.remarks : []);
+                renderRemarks(
+                    selectedSubmission.data && selectedSubmission.data.remarks ? selectedSubmission.data.remarks : [],
+                    selectedSubmission.data && selectedSubmission.data.files ? selectedSubmission.data.files : {}
+                );
                 renderFiles(selectedSubmission.data && selectedSubmission.data.files ? selectedSubmission.data.files : {});
+                renderLyricPreview();
             }
 
             async function refreshSelectedSubmission() {
@@ -625,6 +699,7 @@
                 const doc = await docRef.get();
                 const data = doc.data() || {};
                 const remarks = Array.isArray(data.remarks) ? data.remarks : [];
+                const files = (data.files && typeof data.files === 'object') ? data.files : {};
 
                 const now = new Date().toISOString();
                 const remarkObj = {
@@ -633,6 +708,11 @@
                     byEmail: currentAdminUser && currentAdminUser.email ? currentAdminUser.email : '',
                     byName: currentAdminUser && currentAdminUser.displayName ? currentAdminUser.displayName : ''
                 };
+                if (selectedFileId) {
+                    remarkObj.fileId = selectedFileId;
+                    const f = files[selectedFileId];
+                    if (f && f.name) remarkObj.fileName = String(f.name);
+                }
 
                 remarks.push(remarkObj);
                 await docRef.set({ remarks: remarks }, { merge: true });
@@ -902,4 +982,3 @@
 </body>
 
 </html>
-

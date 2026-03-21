@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Akeystudio</title>
+    <link rel="icon" href="asset/image/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -61,6 +62,7 @@
                 <li><a href="#theme-words">主題詞語</a></li>
                 <li id="myLyricsMenuItem" style="display: none;"><a href="#my-lyrics" id="myLyricsMenuLink">我的歌詞</a>
                 </li>
+                <li id="inboxMenuItem" style="display: none;"><a href="#inbox" id="inboxMenuLink">收件匣</a></li>
                 <li id="adminMenuItem" style="display: none;"><a href="admin.html" id="adminMenuLink">管理員</a></li>
                 <li id="loginMenuItem"><a href="#login" id="loginMenuLink">登入</a></li>
             </ul>
@@ -82,10 +84,8 @@
                     <form id="lyricForm">
                         <div class="input-group" id="lyricInputGroup">
                             <div class="input-wrapper">
-                                <input type="text" id="inputDigits" name="inputDigits"
-                                    class="home-phrase-mode"
-                                    placeholder="輸入一句靈感或主題，按傳送生成完整粵語歌詞"
-                                    maxlength="500" autocomplete="off" required>
+                                <input type="text" id="inputDigits" name="inputDigits" class="home-phrase-mode"
+                                    placeholder="輸入一句靈感或主題，按傳送生成完整粵語歌詞" maxlength="500" autocomplete="off" required>
                                 <button type="submit" class="send-icon-btn" id="sendLyricsBtn" aria-label="傳送">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                                         xmlns="http://www.w3.org/2000/svg">
@@ -96,32 +96,7 @@
                         </div>
 
                         <div class="topic-buttons-container" id="topicButtonsContainer" style="display: none;">
-                            <div class="topic-buttons-grid">
-                                <button type="button" class="topic-btn" data-topic="青春">
-                                    <span class="topic-emoji">🌱</span>
-                                    <span class="topic-label">青春</span>
-                                </button>
-                                <button type="button" class="topic-btn" data-topic="活力">
-                                    <span class="topic-emoji">⚡</span>
-                                    <span class="topic-label">活力</span>
-                                </button>
-                                <button type="button" class="topic-btn" data-topic="愛">
-                                    <span class="topic-emoji">❤️</span>
-                                    <span class="topic-label">愛</span>
-                                </button>
-                                <button type="button" class="topic-btn" data-topic="悲傷">
-                                    <span class="topic-emoji">😢</span>
-                                    <span class="topic-label">悲傷</span>
-                                </button>
-                                <button type="button" class="topic-btn" data-topic="失戀">
-                                    <span class="topic-emoji">💔</span>
-                                    <span class="topic-label">失戀</span>
-                                </button>
-                                <button type="button" class="topic-btn" data-topic="開心">
-                                    <span class="topic-emoji">😊</span>
-                                    <span class="topic-label">開心</span>
-                                </button>
-                            </div>
+                            <div class="topic-buttons-grid" id="topicButtonsGrid"></div>
                         </div>
                         <button type="submit" id="generateBtn" style="display: none;">
                             <span class="btn-text">Generate Lyrics</span>
@@ -131,6 +106,12 @@
                 </div>
 
                 <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+                <div id="homeLyricsLoading" class="home-lyrics-loading" style="display: none;" role="status"
+                    aria-live="polite">
+                    <span class="home-lyrics-loading-spinner" aria-hidden="true"></span>
+                    <span class="home-lyrics-loading-text">正在生成粵語歌詞，請稍候…</span>
+                </div>
 
                 <div id="resultsSection" class="results-section" style="display: none;">
                     <div class="result-header">
@@ -179,11 +160,11 @@
                 </div>
                 <div class="lyrics-panel-header">
                     <h2>我的歌詞</h2>
-                    <button class="lyrics-panel-close" id="closeMyLyricsModal" type="button" aria-label="關閉">×</button>
                 </div>
                 <div class="lyrics-panel-body lyrics-panel-body-with-files">
                     <div id="myLyricsRemarkSection" class="my-lyrics-remark" style="display: none;">
                         <div class="my-lyrics-remark-title">管理員備註</div>
+                        <p class="my-lyrics-remark-sub">顯示與<strong>目前歌詞檔案</strong>相關的備註，以及未指定檔案的通用備註。</p>
                         <div id="myLyricsRemarkText" class="my-lyrics-remark-text"></div>
                     </div>
                     <div class="lyrics-file-dropdown" id="lyricsFileDropdown">
@@ -205,10 +186,24 @@
                         </div>
                         <textarea id="lyricsTextarea" placeholder="在這裡輸入你的歌詞..." class="lyrics-textarea"></textarea>
                     </div>
+                    <div id="myLyricsAudioSection" class="my-lyrics-audio-section">
+                        <div id="myLyricsRecordingStatus" class="my-lyrics-recording-status" style="display: none;"
+                            aria-live="polite"></div>
+                        <div id="myLyricsAudioPlayerWrap" class="my-lyrics-audio-player-wrap" style="display: none;">
+                            <audio id="myLyricsAudioPlayer" class="my-lyrics-audio-el" controls
+                                controlsList="nodownload"></audio>
+                            <button type="button" id="removeLyricsAudioBtn"
+                                class="btn-secondary btn-small">移除錄音</button>
+                        </div>
+                    </div>
                 </div>
-                <div class="lyrics-panel-footer">
+                <div class="lyrics-panel-footer lyrics-panel-footer--actions-grid">
+                    <button id="deleteCurrentLyricsFileBtn" class="btn-secondary btn-danger-outline"
+                        type="button">刪除此歌詞</button>
+                    <button id="recordLyricsAudioBtn" class="btn-secondary" type="button">錄音</button>
                     <button id="saveToFirebaseBtn" class="btn-primary" type="button">💾 儲存</button>
-                    <button id="closeMyLyricsBtn" class="btn-secondary" type="button">關閉</button>
+                    <button class="lyrics-panel-close lyrics-panel-close--labeled" id="closeMyLyricsModal"
+                        type="button" aria-label="關閉我的歌詞">關閉</button>
                 </div>
             </div>
         </div>
@@ -287,6 +282,21 @@
                         <button type="submit" class="btn-primary">註冊</button>
                     </form>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inbox: all admin remarks for this user -->
+    <div id="inboxPanel" class="lyrics-slide-panel" data-panel="inbox">
+        <div class="lyrics-panel-overlay" id="inboxPanelOverlay"></div>
+        <div class="lyrics-panel-content login-panel-content">
+            <div class="lyrics-panel-header">
+                <h2>收件匣</h2>
+                <button class="lyrics-panel-close" id="closeInboxPanel" type="button" aria-label="關閉">&times;</button>
+            </div>
+            <div class="lyrics-panel-body">
+                <p class="inbox-intro">此處顯示<strong>管理員備註</strong>：包含適用於全部歌詞的備註，以及針對各歌詞檔案的備註（由新至舊排列）。</p>
+                <div id="inboxRemarksContent" class="inbox-remarks-content" role="region" aria-live="polite"></div>
             </div>
         </div>
     </div>
@@ -407,6 +417,13 @@
                             }
                         }
 
+                        // 收件匣：管理員備註（登入後）
+                        if (href === '#inbox') {
+                            if (typeof window.openInboxPanel === 'function') {
+                                window.openInboxPanel();
+                            }
+                        }
+
                         // Scroll if an element with that id exists (#0243 must use getElementById — not valid in querySelector)
                         const target = document.getElementById(href.slice(1));
                         if (target) {
@@ -437,6 +454,7 @@
 
         // Switch to chatbot mode
         function switchToChatbotMode() {
+            document.body.classList.remove('topic-page');
             const heroImage = document.getElementById('heroImage');
             const inspirationLines = document.getElementById('inspirationLines');
             const lyricInputGroupChat = document.getElementById('lyricInputGroup');
@@ -467,27 +485,10 @@
             }
         }
 
-        // Default 主題詞語 topic buttons (same as first page load — never use Random state here)
-        var DEFAULT_TOPIC_PAGE_BUTTONS = [
-            { topic: '青春', emoji: '🌱' },
-            { topic: '活力', emoji: '⚡' },
-            { topic: '愛', emoji: '❤️' },
-            { topic: '悲傷', emoji: '😢' },
-            { topic: '失戀', emoji: '💔' },
-            { topic: '開心', emoji: '😊' }
-        ];
-
         function resetTopicPageToOriginalState() {
-            DEFAULT_TOPIC_PAGE_BUTTONS.forEach(function (pair, index) {
-                var buttons = document.querySelectorAll('#topicButtonsContainer .topic-btn');
-                var button = buttons[index];
-                if (!button) return;
-                button.setAttribute('data-topic', pair.topic);
-                var emojiSpan = button.querySelector('.topic-emoji');
-                var labelSpan = button.querySelector('.topic-label');
-                if (emojiSpan) emojiSpan.textContent = pair.emoji;
-                if (labelSpan) labelSpan.textContent = pair.topic;
-            });
+            if (typeof window.renderTopicPageButtons === 'function') {
+                window.renderTopicPageButtons();
+            }
         }
 
         /** Clear result DOM + app state when leaving 0243 / 主題詞語 / home so the next page has no leftover data. */
@@ -499,12 +500,16 @@
 
         // Switch to topic mode (always same as first visit to 主題詞語)
         function switchToTopicMode() {
+            if (typeof window.setHomePhraseUiLoading === 'function') {
+                window.setHomePhraseUiLoading(false);
+            }
             clearPageResultData();
             var resultsSection = document.getElementById('resultsSection');
             var resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
             document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
+            document.body.classList.add('topic-page');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             if (typeof resetHeroPosition === 'function') {
@@ -579,12 +584,16 @@
 
         // Switch to 0243 mode
         function switchTo0243Mode() {
+            if (typeof window.setHomePhraseUiLoading === 'function') {
+                window.setHomePhraseUiLoading(false);
+            }
             clearPageResultData();
             const resultsSection = document.getElementById('resultsSection');
             const resultsContainer = document.getElementById('resultsContainer');
             if (resultsSection) resultsSection.style.display = 'none';
             if (resultsContainer) resultsContainer.innerHTML = '';
             document.body.classList.remove('results-visible-0243', 'results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
+            document.body.classList.remove('topic-page');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             if (typeof resetHeroPosition === 'function') {
@@ -638,6 +647,7 @@
                 inputDigits.classList.remove('chatbot-mode', 'topic-mode', 'home-phrase-mode');
                 inputDigits.classList.add('mode-0243');
                 inputDigits.value = ''; // Clear input
+                inputDigits.disabled = false;
             }
 
             // Reset button text
@@ -651,6 +661,9 @@
 
         // Reset to home page
         function resetToHomePage() {
+            if (typeof window.setHomePhraseUiLoading === 'function') {
+                window.setHomePhraseUiLoading(false);
+            }
             clearPageResultData();
             // Hide and clear previous results (e.g. 0243) when switching away
             const resultsSection = document.getElementById('resultsSection');
@@ -659,7 +672,7 @@
             if (resultsContainer) resultsContainer.innerHTML = '';
             document.body.classList.remove('results-visible-0243');
             // Reset 0243 “compact hero header” state (set in app.js)
-            document.body.classList.remove('results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243');
+            document.body.classList.remove('results-visible-topic', 'results-visible-fullsong', 'hero-collapsed-0243', 'topic-page');
             try { delete document.body.dataset.lastResultMode; } catch (e) { }
 
             // Move hero back to its original position in the header
@@ -755,6 +768,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
     <script>
         try {
             const firebaseConfig = {
@@ -773,12 +787,14 @@
                 const app = firebase.initializeApp(firebaseConfig);
                 const db = firebase.firestore();
                 const auth = firebase.auth();
+                const storage = firebase.storage();
 
                 window.firebaseDb = db;
                 window.firebaseApp = app;
                 window.firebaseAuth = auth;
+                window.firebaseStorage = storage;
 
-                console.log('✓ Firebase initialized (Auth + Firestore)');
+                console.log('✓ Firebase initialized (Auth + Firestore + Storage)');
             }
         } catch (error) {
             console.error('✗ Firebase initialization error:', error);

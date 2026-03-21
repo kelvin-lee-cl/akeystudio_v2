@@ -338,16 +338,27 @@ body {
     }
 }
 
-/* Lyrics pane inner: independent scroll container */
+/* Lyrics pane inner: header/footer fixed; only body scrolls (close stays visible) */
 .split-view-lyrics-pane .lyrics-pane-inner {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
     overflow-x: hidden;
+    background: #fff;
+}
+
+.split-view-lyrics-pane .lyrics-panel-body {
+    min-height: 0;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+}
+
+.split-view-lyrics-pane .lyrics-panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     background: #fff;
 }
 
@@ -397,12 +408,14 @@ header {
     padding: 50px;
 }
 
-/* 0243 / 主題詞語 page: when results are visible, show hero icon next to the input bar */
+/* 0243 / 主題詞語 / home full-song: when results are visible, show hero icon next to the input bar */
 body.results-visible-0243 header,
-body.results-visible-topic header {
+body.results-visible-topic header,
+body.results-visible-fullsong header {
     height: auto;
     min-height: 0;
     padding: 0;
+    padding-top: 0;
     position: static;
     /* allow hero to be positioned independently */
     background: transparent;
@@ -410,7 +423,8 @@ body.results-visible-topic header {
 }
 
 body.results-visible-0243 .hero-image-container,
-body.results-visible-topic .hero-image-container {
+body.results-visible-topic .hero-image-container,
+body.results-visible-fullsong .hero-image-container {
     padding: 0;
     margin: 0;
     position: relative;
@@ -429,7 +443,8 @@ body.results-visible-topic .hero-image-container {
 }
 
 body.results-visible-0243 .hero-image,
-body.results-visible-topic .hero-image {
+body.results-visible-topic .hero-image,
+body.results-visible-fullsong .hero-image {
     width: 44px;
     height: 44px;
     max-width: none;
@@ -447,8 +462,9 @@ body.results-visible-topic .hero-image {
 
 /* Input bar pinned to the top row, to the right of the hero icon */
 body.results-visible-0243 .input-section,
-body.results-visible-topic .input-section {
-    padding: 10px 16px;
+body.results-visible-topic .input-section,
+body.results-visible-fullsong .input-section {
+    padding: 0;
     position: sticky;
     top: 80px;
     /* align with hero icon under navbar */
@@ -465,7 +481,8 @@ body.results-visible-topic .input-section {
 }
 
 body.results-visible-0243 .input-section .input-group,
-body.results-visible-topic .input-section .input-group {
+body.results-visible-topic .input-section .input-group,
+body.results-visible-fullsong .input-section .input-group {
     width: 100%;
     max-width: min(720px, 100vw - 40px);
     margin: 0 auto;
@@ -498,8 +515,89 @@ body.hero-collapsed-0243 .hero-image {
 
 /* Give results a little breathing room below the sticky input */
 body.results-visible-0243 .results-section,
-body.results-visible-topic .results-section {
+body.results-visible-topic .results-section,
+body.results-visible-fullsong .results-section {
     padding-top: 22px;
+}
+
+/*
+ * Home full song: scroll the main pane only — no max-height box inside results
+ * (avoids double scroll and “trapped” lyrics).
+ */
+body.results-visible-fullsong .results-section {
+    max-height: none;
+    overflow: visible;
+    -webkit-overflow-scrolling: auto;
+}
+
+/*
+ * Lock the split view to the viewport when full-song results are showing (all breakpoints).
+ * Otherwise .split-view grows with content, #mainPane never gets a bounded height, and
+ * overflow-y:auto on .split-view-main-pane does nothing — the page feels “not scrollable”.
+ */
+body.results-visible-fullsong .split-view:not(.lyrics-open) {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+}
+
+body.results-visible-fullsong .split-view:not(.lyrics-open) .split-view-main-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.results-visible-fullsong .container {
+    display: flex;
+    flex-direction: column;
+    min-height: min-content;
+    overflow-x: hidden;
+    overflow-y: visible;
+}
+
+/* Lyrics panel open: split is already viewport-tall — keep main pane as the scrollport */
+body.results-visible-fullsong .split-view.lyrics-open .split-view-main-pane {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * 主題詞語 picker + results: lock split view to the viewport so #mainPane scrolls
+ * (same issue as full-song — otherwise content grows and the pane never becomes a scrollport).
+ */
+body.topic-page .split-view:not(.lyrics-open),
+body.results-visible-topic .split-view:not(.lyrics-open) {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+}
+
+body.topic-page .split-view:not(.lyrics-open) .split-view-main-pane,
+body.results-visible-topic .split-view:not(.lyrics-open) .split-view-main-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.topic-page .container,
+body.results-visible-topic .container {
+    display: flex;
+    flex-direction: column;
+    min-height: min-content;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 
 header h1 {
@@ -527,7 +625,7 @@ header h1 {
 }
 
 .input-section {
-    padding: 40px;
+    padding: 0;
     background: white;
     position: relative;
     z-index: 100;
@@ -674,9 +772,9 @@ header h1 {
 
 .topic-buttons-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 22px 18px;
-    max-width: 960px;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 16px 12px;
+    max-width: 1400px;
     margin: 0 auto;
 }
 
@@ -711,15 +809,15 @@ header h1 {
     background: white;
     border: 2px solid #e0e0e0;
     border-radius: 14px;
-    padding: 20px 16px;
+    padding: 18px 16px;
     cursor: pointer;
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: 0;
     width: 100%;
-    min-height: 148px;
+    min-height: 88px;
     justify-content: center;
 }
 
@@ -731,17 +829,6 @@ header h1 {
 
 .topic-btn:active {
     transform: translateY(0);
-}
-
-.topic-emoji {
-    font-size: 3.35em;
-    display: block;
-    line-height: 1;
-    transition: transform 0.3s ease;
-}
-
-.topic-btn:hover .topic-emoji {
-    transform: scale(1.1);
 }
 
 .topic-label {
@@ -781,6 +868,52 @@ button:disabled {
     border-left: 4px solid #c33;
     margin: 0 40px 20px;
     border-radius: 5px;
+}
+
+/* Home page: DeepSeek full-song loading hint */
+.home-lyrics-loading {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin: 0 40px 20px;
+    padding: 14px 20px;
+    background: #f0f4ff;
+    color: #1a237e;
+    border: 1px solid #c5cae9;
+    border-radius: 10px;
+    font-size: 1.05em;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.home-lyrics-loading-spinner {
+    width: 22px;
+    height: 22px;
+    border: 3px solid #c5cae9;
+    border-top-color: #1a237e;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: home-lyrics-spin 0.75s linear infinite;
+}
+
+@keyframes home-lyrics-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.home-lyrics-loading-text {
+    text-align: center;
+}
+
+@media screen and (max-width: 768px) {
+
+    .home-lyrics-loading {
+        margin-left: 16px;
+        margin-right: 16px;
+        flex-wrap: wrap;
+    }
 }
 
 /* Clipboard toast (0243 / 主題詞語 result boxes) */
@@ -1117,6 +1250,18 @@ button:disabled {
     animation: modalSlideIn 0.3s ease;
 }
 
+.btn-secondary.btn-danger-outline {
+    color: #b71c1c;
+    border: 2px solid #e57373;
+    background: #fff;
+}
+
+.btn-secondary.btn-danger-outline:hover {
+    background: #ffebee;
+    border-color: #c62828;
+    color: #b71c1c;
+}
+
 /* My Lyrics Sliding Panel Styles */
 .lyrics-slide-panel {
     position: fixed;
@@ -1286,6 +1431,23 @@ button:disabled {
     color: #333;
 }
 
+/* 我的歌詞：文字「關閉」按鈕（與登入／收件匣的 × 區分） */
+.lyrics-panel-close--labeled {
+    font-size: 1rem;
+    font-weight: 600;
+    width: auto;
+    min-height: 40px;
+    padding: 8px 14px;
+    color: #333;
+    border: 2px solid #e0e0e0;
+    background: #fafafa;
+}
+
+.lyrics-panel-close--labeled:hover {
+    background: #eee;
+    border-color: #ccc;
+}
+
 .lyrics-panel-body {
     flex: 1;
     overflow-y: auto;
@@ -1297,10 +1459,60 @@ button:disabled {
 .lyrics-panel-footer {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 10px;
     padding: 20px 25px;
     border-top: 2px solid #e0e0e0;
     flex-shrink: 0;
+}
+
+/* 我的歌詞底部：2×2（刪除｜錄音 / 儲存｜關閉） */
+.lyrics-panel-footer--actions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    justify-content: stretch;
+}
+
+.lyrics-panel-footer--actions-grid .btn-primary,
+.lyrics-panel-footer--actions-grid .btn-secondary,
+.lyrics-panel-footer--actions-grid .lyrics-panel-close--labeled {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.my-lyrics-audio-section {
+    padding: 0 25px 12px;
+    flex-shrink: 0;
+}
+
+.my-lyrics-recording-status {
+    font-size: 0.95em;
+    color: #c62828;
+    margin-bottom: 8px;
+}
+
+.my-lyrics-recording-status.is-idle-hint {
+    color: #666;
+}
+
+.my-lyrics-audio-player-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.my-lyrics-audio-el {
+    flex: 1;
+    min-width: 200px;
+    max-width: 100%;
+    height: 40px;
+}
+
+.btn-small {
+    padding: 8px 14px;
+    font-size: 0.9em;
 }
 
 .lyrics-textarea {
@@ -1698,11 +1910,23 @@ button:disabled {
 
     .lyrics-panel-footer {
         padding: 15px 20px;
+    }
+
+    .lyrics-panel-footer:not(.lyrics-panel-footer--actions-grid) {
         flex-direction: column;
     }
 
-    .lyrics-panel-footer .btn-primary,
-    .lyrics-panel-footer .btn-secondary {
+    .my-lyrics-audio-section {
+        padding: 0 20px 10px;
+    }
+
+    .my-lyrics-audio-player-wrap {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .my-lyrics-audio-el {
+        min-width: 0;
         width: 100%;
     }
 }
@@ -2007,6 +2231,7 @@ button:disabled {
      * never creates a scrollport — scroll falls through to the document, which often fails
      * on mobile Safari. Match the lyrics-open pattern: viewport-tall split view + main pane scrolls.
      */
+    /* Full-song: viewport lock is global (all widths); 0243 still needs it here on small screens. */
     body.results-visible-0243 .split-view:not(.lyrics-open) {
         height: 100vh;
         height: 100dvh;
@@ -2025,7 +2250,9 @@ button:disabled {
     }
 
     /* Fill viewport so there is no empty white band below the results (short lists). */
-    body.results-visible-0243 .container {
+    body.results-visible-0243 .container,
+    body.topic-page .container,
+    body.results-visible-topic .container {
         display: flex;
         flex-direction: column;
         min-height: 100vh;
@@ -2035,13 +2262,32 @@ button:disabled {
         overflow-y: visible;
     }
 
+    body.results-visible-fullsong .container {
+        min-height: 100vh;
+        min-height: 100dvh;
+        /* Space below lyrics + copy row; clear home indicator / safe area */
+        padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    }
+
     body.results-visible-0243 .container>header,
     body.results-visible-0243 .container>.input-section,
-    body.results-visible-0243 .container>#errorMessage {
+    body.results-visible-0243 .container>#errorMessage,
+    body.topic-page .container>header,
+    body.topic-page .container>.input-section,
+    body.topic-page .container>#errorMessage,
+    body.results-visible-topic .container>header,
+    body.results-visible-topic .container>.input-section,
+    body.results-visible-topic .container>#errorMessage,
+    body.results-visible-fullsong .container>header,
+    body.results-visible-fullsong .container>.input-section,
+    body.results-visible-fullsong .container>#errorMessage,
+    body.results-visible-fullsong .container>#homeLyricsLoading {
         flex-shrink: 0;
     }
 
-    body.results-visible-0243 .results-section {
+    body.results-visible-0243 .results-section,
+    body.results-visible-topic .results-section,
+    body.results-visible-fullsong .results-section {
         padding-left: 2px;
         padding-right: 2px;
         padding-bottom: 0;
@@ -2053,23 +2299,27 @@ button:disabled {
         overflow-y: visible;
     }
 
-    body.results-visible-0243 .pattern-group:last-child {
+    body.results-visible-0243 .pattern-group:last-child,
+    body.results-visible-fullsong .pattern-group:last-child {
         margin-bottom: 0;
     }
 
-    body.results-visible-0243 .result-header {
+    body.results-visible-0243 .result-header,
+    body.results-visible-fullsong .result-header {
         padding-left: 16px;
         padding-right: 16px;
     }
 
-    body.results-visible-0243 .pattern-group {
+    body.results-visible-0243 .pattern-group,
+    body.results-visible-fullsong .pattern-group {
         padding: 0;
         width: 100%;
         max-width: none;
         border-radius: 0;
     }
 
-    body.results-visible-0243 .pattern-header {
+    body.results-visible-0243 .pattern-header,
+    body.results-visible-fullsong .pattern-header {
         padding-left: 16px;
         padding-right: 16px;
     }
@@ -2133,6 +2383,16 @@ button:disabled {
         padding: 20px 15px;
     }
 
+    /* Home / 0243 / topic results: hero moved out — no tall empty header band */
+    body.results-visible-fullsong header,
+    body.results-visible-0243 header,
+    body.results-visible-topic header {
+        min-height: 0;
+        max-height: none;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+
     .hero-image {
         padding: 20px 10px;
         max-height: 100%;
@@ -2140,7 +2400,7 @@ button:disabled {
     }
 
     .input-section {
-        padding: 20px 15px;
+        padding: 0;
     }
 
     .input-group input {
@@ -2181,23 +2441,19 @@ button:disabled {
         margin-top: 4px;
     }
 
-    /* Topic picker: keep 3 per row; results grid (.topic-buttons-grid--results) stays 2 cols via base rule */
-    .topic-buttons-grid:not(.topic-buttons-grid--results) {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 16px 12px;
+    /* Topic picker: 8 per row on tablet / mobile; results grid stays 2 cols via .topic-buttons-grid--results */
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) {
+        grid-template-columns: repeat(8, 1fr);
+        gap: 10px 6px;
     }
 
-    .topic-btn {
-        min-height: 124px;
-        padding: 16px 10px;
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) .topic-btn {
+        min-height: 56px;
+        padding: 8px 4px;
     }
 
-    .topic-emoji {
-        font-size: 2.75em;
-    }
-
-    .topic-label {
-        font-size: 1.08em;
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) .topic-label {
+        font-size: 0.8em;
     }
 }
 
@@ -2209,12 +2465,20 @@ button:disabled {
         padding-top: 100px;
     }
 
+    body.results-visible-fullsong header,
+    body.results-visible-0243 header,
+    body.results-visible-topic header {
+        min-height: 0;
+        max-height: none;
+        padding: 0;
+    }
+
     .hero-image {
         padding: 15px 5px;
     }
 
     .input-section {
-        padding: 15px 10px;
+        padding: 0;
     }
 
     .input-group input {
@@ -2237,23 +2501,19 @@ button:disabled {
         font-size: 0.95em;
     }
 
-    /* Topic picker: 3 per row on small screens */
-    .topic-buttons-grid:not(.topic-buttons-grid--results) {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px 8px;
+    /* Topic picker: 8 per row on small phones */
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) {
+        grid-template-columns: repeat(8, 1fr);
+        gap: 6px 3px;
     }
 
-    .topic-btn {
-        min-height: 102px;
-        padding: 12px 6px;
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) .topic-btn {
+        min-height: 48px;
+        padding: 6px 2px;
     }
 
-    .topic-emoji {
-        font-size: 2.15em;
-    }
-
-    .topic-label {
-        font-size: 0.92em;
+    .topic-buttons-container .topic-buttons-grid:not(.topic-buttons-grid--results) .topic-label {
+        font-size: 0.68em;
     }
 }
 
@@ -2270,7 +2530,14 @@ button:disabled {
 .my-lyrics-remark-title {
     font-weight: 700;
     color: #333;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+}
+
+.my-lyrics-remark-sub {
+    margin: 0 0 10px;
+    font-size: 0.88em;
+    color: #555;
+    line-height: 1.45;
 }
 
 .my-lyrics-remark-text {
@@ -2278,6 +2545,29 @@ button:disabled {
     color: #333;
     line-height: 1.6;
     font-size: 1em;
+    max-height: min(42vh, 320px);
+    overflow-y: auto;
+}
+
+/* Inbox — all admin remarks for the signed-in user */
+.inbox-intro {
+    margin: 0 0 14px;
+    font-size: 0.9em;
+    color: #555;
+    line-height: 1.5;
+}
+
+.inbox-remarks-content {
+    white-space: pre-wrap;
+    color: #333;
+    line-height: 1.6;
+    font-size: 0.95em;
+    padding: 12px 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    background: #fafafa;
+    max-height: min(55vh, 420px);
+    overflow-y: auto;
 }
 
 /* Admin page — dashboard */
@@ -2295,12 +2585,38 @@ button:disabled {
     box-sizing: border-box;
 }
 
+.admin-top-nav {
+    margin-bottom: 16px;
+}
+
+.admin-back-home {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #334155;
+    text-decoration: none;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.admin-back-home:hover {
+    color: #0f172a;
+    background: #fff;
+    border-color: rgba(15, 23, 42, 0.12);
+}
+
 .admin-card {
     background: #fff;
     border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 16px;
-    padding: 20px 22px;
+    padding: 28px 22px;
     box-shadow: 0 8px 30px rgba(15, 23, 42, 0.06);
+    margin-bottom: 5px;
 }
 
 .admin-auth-session {
@@ -2613,6 +2929,67 @@ button:disabled {
     border-top: 1px solid #f1f5f9;
 }
 
+.admin-lyric-preview__head {
+    margin-bottom: 14px;
+}
+
+.admin-lyric-preview__heading {
+    margin: 0 0 6px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.admin-lyric-preview__meta {
+    font-size: 0.88rem;
+    color: #475569;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    background: #f1f5f9;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+}
+
+.admin-lyric-preview__filename {
+    font-size: 0.92rem;
+    color: #64748b;
+    word-break: break-word;
+}
+
+.admin-lyric-preview__audio-block {
+    margin-bottom: 14px;
+}
+
+.admin-lyric-preview__audio-block .admin-detail__label {
+    margin-bottom: 8px;
+}
+
+.admin-lyric-preview__audio {
+    display: block;
+    width: 100%;
+    max-width: min(100%, 480px);
+    margin-top: 4px;
+    border-radius: 10px;
+}
+
+.admin-lyric-preview__body {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: #334155;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+    max-height: min(70vh, 560px);
+    overflow: auto;
+}
+
 .admin-detail__title {
     margin: 0 0 16px;
     font-size: 1.15rem;
@@ -2716,7 +3093,7 @@ button:disabled {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 10px;
     margin-bottom: 8px;
 }

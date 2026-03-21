@@ -15,6 +15,76 @@ let lyricsCacheData = null;
 // 0243 words cache (pattern -> array of words)
 let words0243Cache = null;
 
+// 主題詞語 lexicon (topic.json: topicOrder + per-topic arrays)
+let topicLexiconCache = null;
+
+/**
+ * Load topic.json once (topicOrder + word lists per topic).
+ * @returns {Promise<object|null>}
+ */
+async function loadTopicLexicon() {
+    if (topicLexiconCache) return topicLexiconCache;
+    try {
+        let res = await fetch('topic.json').catch(function () { return null; });
+        if (!res || !res.ok) {
+            res = await fetch('./topic.json').catch(function () { return null; });
+        }
+        if (!res || !res.ok) {
+            console.warn('Could not load topic.json:', res && res.status);
+            topicLexiconCache = null;
+            return null;
+        }
+        topicLexiconCache = await res.json();
+        if (!topicLexiconCache || typeof topicLexiconCache !== 'object' || Array.isArray(topicLexiconCache)) {
+            topicLexiconCache = {};
+        }
+        return topicLexiconCache;
+    } catch (err) {
+        console.error('Error loading topic.json:', err);
+        topicLexiconCache = null;
+        return null;
+    }
+}
+
+/**
+ * Return word strings for a topic from topic.json (one word per cell; phrases are two words each).
+ * @param {string} topic
+ * @returns {Promise<string[]>}
+ */
+async function getTopicWordsForTopic(topic) {
+    const data = await loadTopicLexicon();
+    const t = String(topic).trim();
+    if (!data || t === 'topicOrder') return [];
+    const arr = data[t];
+    return Array.isArray(arr) ? arr : [];
+}
+
+function renderTopicPageButtons() {
+    const grid = document.getElementById('topicButtonsGrid');
+    if (!grid) return;
+    if (!topicLexiconCache) {
+        loadTopicLexicon().then(function () {
+            renderTopicPageButtons();
+        }).catch(function () { });
+        return;
+    }
+    const order = topicLexiconCache.topicOrder;
+    if (!Array.isArray(order) || order.length === 0) return;
+    grid.innerHTML = '';
+    order.forEach(function (topic) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'topic-btn';
+        btn.setAttribute('data-topic', topic);
+        const span = document.createElement('span');
+        span.className = 'topic-label';
+        span.textContent = topic;
+        btn.appendChild(span);
+        grid.appendChild(btn);
+    });
+}
+window.renderTopicPageButtons = renderTopicPageButtons;
+
 /**
  * Fetch 0243.json and return words for the given canonical 2-digit pattern (e.g. "00", "02").
  * Note: the app normalizes user input digits to canonical patterns using digitToCanonical0243.
@@ -182,6 +252,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     loadLocalStorageCache();
 
+    void loadTopicLexicon().then(function () {
+        renderTopicPageButtons();
+    }).catch(function () { });
+
     // Load Firebase + lyrics cache without blocking UI binding above
     void (async function initAppData() {
         try {
@@ -229,6 +303,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) {
         regenerateBtn.addEventListener('click', function () {
+            if (window.currentResult && window.currentResult.fromTopicLexicon) {
+                return;
+            }
             if (window.currentResult && window.currentResult.topicModeWords) {
                 handleTopicRegenerate();
             } else if (window.currentResult && window.currentResult.fullSongMode) {
@@ -291,6 +368,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Login panel and Firebase Auth
     setupLoginPanel();
+    setupInboxPanel();
     if (window.firebaseAuth) {
         window.firebaseAuth.onAuthStateChanged(function (user) {
             updateLoginUI(user);
@@ -298,6 +376,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     window.openLoginPanel = openLoginPanel;
     window.openMyLyricsModal = openMyLyricsModal;
+    window.openInboxPanel = openInboxPanel;
 
     // Hero image: in 0243 / 主題詞語 results mode it becomes a small “navbar icon”
     // that sits directly next to the input box.
@@ -334,6 +413,42 @@ function moveHeroNextToInput() {
     // Insert hero at the start of the input section row.
     inputSection.insertBefore(heroContainer, inputSection.firstChild);
     heroContainer.classList.add('hero-inline-with-input');
+}
+
+/**
+ * Scroll so `el` is visible inside `#mainPane` (the real scroll container in the split layout).
+ * `scrollIntoView` alone often fails or mis-scrolls when the hero moves after layout.
+ */
+function scrollElementIntoMainPane(el, options) {
+    const opts = options || {};
+    const pad = typeof opts.padding === 'number' ? opts.padding : 8;
+    const behavior = opts.behavior || 'smooth';
+    if (!el) return;
+    const mainPane = document.getElementById('mainPane');
+    if (!mainPane) {
+        el.scrollIntoView({ behavior: behavior, block: 'start' });
+        return;
+    }
+    const elRect = el.getBoundingClientRect();
+    const paneRect = mainPane.getBoundingClientRect();
+    const nextTop = mainPane.scrollTop + (elRect.top - paneRect.top) - pad;
+    mainPane.scrollTo({ top: Math.max(0, nextTop), left: 0, behavior: behavior });
+}
+
+/**
+ * Move hero inline first, wait for layout, then scroll the main pane to the results block.
+ * Order matters: scrolling before `moveHeroNextToInput` leaves results off-screen (felt like “submit twice”).
+ */
+function revealResultsSectionInMainPane() {
+    const resultsSection = document.getElementById('resultsSection');
+    if (!resultsSection) return;
+    moveHeroNextToInput();
+    resultsSection.scrollTop = 0;
+    requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+            scrollElementIntoMainPane(resultsSection);
+        });
+    });
 }
 
 // Reset hero image container back into the header (original position).
@@ -766,6 +881,7 @@ async function generateFullSongCantoneseDeepseek(userPhrase) {
 function setHomePhraseUiLoading(isLoading) {
     const sendLyricsBtn = document.getElementById('sendLyricsBtn');
     const inputDigits = document.getElementById('inputDigits');
+    const loadingEl = document.getElementById('homeLyricsLoading');
     if (sendLyricsBtn) {
         sendLyricsBtn.disabled = !!isLoading;
         sendLyricsBtn.classList.toggle('is-loading', !!isLoading);
@@ -774,7 +890,12 @@ function setHomePhraseUiLoading(isLoading) {
     if (inputDigits) {
         inputDigits.disabled = !!isLoading;
     }
+    if (loadingEl) {
+        loadingEl.style.display = isLoading ? 'flex' : 'none';
+    }
 }
+
+window.setHomePhraseUiLoading = setHomePhraseUiLoading;
 
 // Handle form submission
 async function handleFormSubmit(event) {
@@ -830,10 +951,7 @@ async function handleFormSubmit(event) {
                 // Start expanded whenever we generate fresh 0243 results.
                 document.body.classList.remove('hero-collapsed-0243');
                 document.body.dataset.lastResultMode = '0243';
-                // Place hero image inline next to the input box
-                moveHeroNextToInput();
-                resultsSection.scrollTop = 0;
-                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                revealResultsSectionInMainPane();
             }
         } catch (err) {
             console.error('0243 lookup error:', err);
@@ -860,43 +978,42 @@ async function handleFormSubmit(event) {
             showError('Please select or enter a topic.');
             return;
         }
-        const cacheKey = topicWordsCacheKey(topic);
-        const requiredCount = 6;
         if (btnText) btnText.style.display = 'none';
         if (btnLoader) btnLoader.style.display = 'inline';
         if (generateBtn) generateBtn.disabled = true;
         try {
-            let result = await getCachedResult(cacheKey);
-            if (!result || !result.topicModeWords || result.topic !== topic || !Array.isArray(result.relatedWords) || result.relatedWords.length < requiredCount) {
-                const relatedWords = await generateTopicRelatedWordsDeepseek(topic, requiredCount);
-                if (!relatedWords || relatedWords.length < requiredCount) {
-                    showError('無法取得主題詞語，請再試一次。');
-                    return;
-                }
-                result = {
-                    topicModeWords: true,
-                    topic,
-                    relatedWords: relatedWords.slice(0, requiredCount),
-                    input: cacheKey,
-                    input_length: requiredCount
-                };
-                await saveToCache(cacheKey, result);
+            const words = await getTopicWordsForTopic(topic);
+            if (!words || words.length === 0) {
+                showError('找不到該主題詞庫，請從列表選擇主題。');
+                return;
             }
+            const result = {
+                input: topic,
+                canonicalPattern: topic,
+                input_length: 2,
+                from0243: true,
+                fromTopicLexicon: true,
+                topic,
+                patterns: { '2-tone': [topic] },
+                results: {
+                    '2-tone': {
+                        [topic]: words.map(function (w) { return { phrase: w }; })
+                    }
+                }
+            };
             displayResults(result);
             if (resultsSection) {
                 resultsSection.style.display = 'block';
-                resultsSection.scrollTop = 0;
-                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                document.body.classList.add('results-visible-topic');
-                document.body.classList.remove('hero-collapsed-0243');
-                document.body.dataset.lastResultMode = 'topic';
+                document.body.classList.add('results-visible-0243');
+                document.body.classList.remove('results-visible-topic', 'topic-page', 'hero-collapsed-0243');
+                document.body.dataset.lastResultMode = '0243';
                 const topicButtonsContainer = document.getElementById('topicButtonsContainer');
                 if (topicButtonsContainer) topicButtonsContainer.style.display = 'none';
-                moveHeroNextToInput();
+                revealResultsSectionInMainPane();
             }
         } catch (error) {
             console.error('Topic words error:', error);
-            showError(error && error.message ? error.message : '無法載入主題詞語，請稍後再試。');
+            showError(error && error.message ? error.message : '無法載入主題詞庫，請稍後再試。');
         } finally {
             if (btnText) btnText.style.display = 'inline';
             if (btnLoader) btnLoader.style.display = 'none';
@@ -931,12 +1048,10 @@ async function handleFormSubmit(event) {
             displayResults(result);
             if (resultsSection) {
                 resultsSection.style.display = 'block';
-                resultsSection.scrollTop = 0;
-                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 document.body.classList.add('results-visible-fullsong');
                 document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243', 'results-visible-0243');
                 document.body.dataset.lastResultMode = 'fullsong';
-                moveHeroNextToInput();
+                revealResultsSectionInMainPane();
             }
         } catch (error) {
             console.error('Full song error:', error);
@@ -1010,7 +1125,11 @@ async function handleFormSubmit(event) {
         if (resultsSection) {
             resultsSection.style.display = 'block';
             resultsSection.scrollTop = 0;
-            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    scrollElementIntoMainPane(resultsSection);
+                });
+            });
 
             // Non-topic digit mode should not keep the compact-topic header
             document.body.classList.remove('results-visible-topic', 'hero-collapsed-0243');
@@ -1065,9 +1184,11 @@ function displayResults(result) {
         copyBtn.textContent = '📋 複製全文';
         copyBtn.addEventListener('click', function () {
             const t = result.songLyrics.trim();
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(t).catch(function () { });
-            }
+            copyTextToClipboard(t).then(function () {
+                showCopyToast('', false, '已複製全文');
+            }).catch(function () {
+                showCopyToast('無法複製到剪貼簿，請重試。', true);
+            });
         });
         copyRow.appendChild(copyBtn);
         wrap.appendChild(copyRow);
@@ -1388,11 +1509,12 @@ function truncateForToast(s, maxLen) {
 }
 
 /**
- * Toast after copying a word from 0243 / 主題詞語 result boxes.
+ * Toast after copying a word from 0243 / 主題詞語 result boxes, or full-song lyrics.
  * @param {string} copiedText - full string that was copied
  * @param {boolean} [isError] - show error styling
+ * @param {string} [fixedMessage] - if set, show this text instead of the default 已複製：「…」 preview
  */
-function showCopyToast(copiedText, isError) {
+function showCopyToast(copiedText, isError, fixedMessage) {
     let el = document.getElementById('copyToast');
     if (!el) {
         el = document.createElement('div');
@@ -1402,10 +1524,14 @@ function showCopyToast(copiedText, isError) {
         el.setAttribute('aria-live', 'polite');
         document.body.appendChild(el);
     }
-    const display = truncateForToast(copiedText, 48);
-    el.textContent = isError
-        ? display
-        : '已複製：「' + display + '」';
+    if (fixedMessage && typeof fixedMessage === 'string') {
+        el.textContent = fixedMessage;
+    } else {
+        const display = truncateForToast(copiedText, 48);
+        el.textContent = isError
+            ? display
+            : '已複製：「' + display + '」';
+    }
     el.classList.toggle('copy-toast--error', !!isError);
     el.classList.add('copy-toast--visible');
     clearTimeout(copyToastHideTimer);
@@ -1743,6 +1869,450 @@ function setMyLyricsData(data) {
     }
 }
 
+async function persistMyLyricsToFirestore(showSuccessAlert) {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) throw new Error('not logged in');
+    if (!window.firebaseDb) throw new Error('Firebase not initialized');
+
+    saveCurrentFileContentFromUI();
+    var data = getMyLyricsData();
+    if (!data.files || Object.keys(data.files).length === 0) {
+        throw new Error('no lyrics files');
+    }
+
+    var timestamp = new Date().toISOString();
+    await window.firebaseDb.collection('userLyrics').doc(user.uid).set({
+        files: data.files,
+        updatedAt: timestamp,
+        student: {
+            name: user.displayName || '',
+            email: user.email || ''
+        }
+    }, { merge: true });
+
+    setMyLyricsData(data);
+    if (showSuccessAlert) {
+        alert('✓ 歌詞已成功儲存到 Firebase！');
+    }
+    console.log('✓ Lyrics persisted to Firebase for user', user.uid);
+}
+
+// --- My lyrics: one audio recording per lyric file (Firebase Storage + Firestore metadata) ---
+const MY_LYRICS_MAX_AUDIO_SEC = 180;
+const MY_LYRICS_AUDIO_TARGET_BPS = 192000;
+
+var myLyricsRecording = {
+    mediaRecorder: null,
+    stream: null,
+    chunks: [],
+    mimeType: '',
+    tickTimer: null,
+    maxTimer: null,
+    startMs: 0,
+    discard: false
+};
+
+function pickLyricsRecordingMime() {
+    if (typeof MediaRecorder === 'undefined') return '';
+    var candidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus'
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+        if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+    }
+    return '';
+}
+
+function fileExtForLyricsMime(mime) {
+    if (!mime) return 'webm';
+    var m = mime.toLowerCase();
+    if (m.indexOf('mp4') !== -1 || m.indexOf('m4a') !== -1) return 'm4a';
+    if (m.indexOf('ogg') !== -1) return 'ogg';
+    if (m.indexOf('webm') !== -1) return 'webm';
+    return 'webm';
+}
+
+function formatLyricsRecordingClock(sec) {
+    var s = Math.floor(Math.max(0, sec));
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return mm + ':' + (ss < 10 ? '0' : '') + ss;
+}
+
+function cleanupLyricsRecordingStream() {
+    if (myLyricsRecording.stream) {
+        try {
+            myLyricsRecording.stream.getTracks().forEach(function (t) { t.stop(); });
+        } catch (e) { }
+        myLyricsRecording.stream = null;
+    }
+}
+
+function clearLyricsRecordingTimers() {
+    if (myLyricsRecording.tickTimer) {
+        clearInterval(myLyricsRecording.tickTimer);
+        myLyricsRecording.tickTimer = null;
+    }
+    if (myLyricsRecording.maxTimer) {
+        clearTimeout(myLyricsRecording.maxTimer);
+        myLyricsRecording.maxTimer = null;
+    }
+}
+
+function hideLyricsRecordingStatus() {
+    var statusEl = document.getElementById('myLyricsRecordingStatus');
+    if (statusEl) {
+        statusEl.style.display = 'none';
+        statusEl.textContent = '';
+        statusEl.classList.remove('is-idle-hint');
+    }
+}
+
+function resetLyricsRecordButton() {
+    var btn = document.getElementById('recordLyricsAudioBtn');
+    if (btn) {
+        btn.textContent = '錄音';
+        btn.disabled = false;
+    }
+}
+
+function updateLyricsRecordingTick() {
+    var statusEl = document.getElementById('myLyricsRecordingStatus');
+    if (!statusEl) return;
+    var s = (Date.now() - myLyricsRecording.startMs) / 1000;
+    statusEl.style.display = '';
+    statusEl.classList.remove('is-idle-hint');
+    statusEl.textContent = '錄音中… ' + formatLyricsRecordingClock(s) + ' / 3:00（最多 3 分鐘，約 192 kbps）';
+}
+
+function abortLyricsRecordingIfAny() {
+    if (!myLyricsRecording.mediaRecorder) return;
+    myLyricsRecording.discard = true;
+    clearLyricsRecordingTimers();
+    try {
+        if (myLyricsRecording.mediaRecorder.state === 'recording') {
+            myLyricsRecording.mediaRecorder.stop();
+        } else {
+            cleanupLyricsRecordingStream();
+            myLyricsRecording.mediaRecorder = null;
+            myLyricsRecording.chunks = [];
+            myLyricsRecording.discard = false;
+        }
+    } catch (e) {
+        cleanupLyricsRecordingStream();
+        myLyricsRecording.mediaRecorder = null;
+        myLyricsRecording.chunks = [];
+        myLyricsRecording.discard = false;
+    }
+    resetLyricsRecordButton();
+    hideLyricsRecordingStatus();
+}
+
+function onLyricsMediaRecorderStopped() {
+    clearLyricsRecordingTimers();
+
+    if (myLyricsRecording.discard) {
+        cleanupLyricsRecordingStream();
+        myLyricsRecording.mediaRecorder = null;
+        myLyricsRecording.chunks = [];
+        myLyricsRecording.discard = false;
+        return;
+    }
+
+    var mr = myLyricsRecording.mediaRecorder;
+    var mime = myLyricsRecording.mimeType || (mr && mr.mimeType) || 'audio/webm';
+    var blob = new Blob(myLyricsRecording.chunks, { type: mime });
+    var durationSec = (Date.now() - myLyricsRecording.startMs) / 1000;
+    if (durationSec > MY_LYRICS_MAX_AUDIO_SEC + 0.5) {
+        durationSec = MY_LYRICS_MAX_AUDIO_SEC;
+    }
+
+    cleanupLyricsRecordingStream();
+    myLyricsRecording.mediaRecorder = null;
+    myLyricsRecording.chunks = [];
+
+    if (blob.size < 256) {
+        alert('錄音過短或失敗，請重試。');
+        resetLyricsRecordButton();
+        hideLyricsRecordingStatus();
+        return;
+    }
+
+    uploadLyricsAudioBlob(blob, durationSec, mime);
+}
+
+async function startLyricsRecording() {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) {
+        alert('請先登入才能錄音。');
+        return;
+    }
+    if (!window.firebaseStorage) {
+        alert('無法使用雲端儲存，請重新整理頁面後再試。');
+        return;
+    }
+
+    var data = getMyLyricsData();
+    if (!data.currentId || !data.files[data.currentId]) {
+        alert('請先選擇或新增一份歌詞檔案。');
+        return;
+    }
+
+    var stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        console.error(err);
+        alert('無法存取麥克風，請檢查瀏覽器權限。');
+        return;
+    }
+
+    myLyricsRecording.stream = stream;
+    myLyricsRecording.chunks = [];
+    myLyricsRecording.discard = false;
+    myLyricsRecording.mimeType = pickLyricsRecordingMime();
+
+    var options = {};
+    if (myLyricsRecording.mimeType) options.mimeType = myLyricsRecording.mimeType;
+    if (typeof MediaRecorder !== 'undefined' && 'audioBitsPerSecond' in MediaRecorder.prototype) {
+        options.audioBitsPerSecond = MY_LYRICS_AUDIO_TARGET_BPS;
+    }
+
+    var mr;
+    try {
+        mr = new MediaRecorder(stream, options);
+    } catch (e1) {
+        try {
+            mr = myLyricsRecording.mimeType
+                ? new MediaRecorder(stream, { mimeType: myLyricsRecording.mimeType })
+                : new MediaRecorder(stream);
+        } catch (e2) {
+            cleanupLyricsRecordingStream();
+            alert('此瀏覽器不支援錄音，請改用 Chrome 或 Edge。');
+            return;
+        }
+    }
+
+    myLyricsRecording.mediaRecorder = mr;
+    mr.ondataavailable = function (e) {
+        if (e.data && e.data.size) myLyricsRecording.chunks.push(e.data);
+    };
+    mr.onerror = function (ev) {
+        console.error('MediaRecorder error', ev);
+    };
+    mr.onstop = function () {
+        onLyricsMediaRecorderStopped();
+    };
+
+    myLyricsRecording.startMs = Date.now();
+    try {
+        mr.start(250);
+    } catch (e) {
+        cleanupLyricsRecordingStream();
+        myLyricsRecording.mediaRecorder = null;
+        alert('無法開始錄音。');
+        return;
+    }
+
+    var btn = document.getElementById('recordLyricsAudioBtn');
+    if (btn) btn.textContent = '停止';
+
+    var statusEl = document.getElementById('myLyricsRecordingStatus');
+    if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.classList.remove('is-idle-hint');
+        statusEl.textContent = '錄音中… 0:00 / 3:00（最多 3 分鐘，約 192 kbps）';
+    }
+
+    myLyricsRecording.tickTimer = setInterval(updateLyricsRecordingTick, 250);
+    myLyricsRecording.maxTimer = setTimeout(function () {
+        if (mr.state === 'recording') {
+            mr.stop();
+        }
+    }, MY_LYRICS_MAX_AUDIO_SEC * 1000);
+}
+
+function stopLyricsRecording() {
+    var mr = myLyricsRecording.mediaRecorder;
+    if (mr && mr.state === 'recording') {
+        try {
+            mr.stop();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+}
+
+async function deleteLyricsAudioAtPath(storagePath) {
+    if (!storagePath || !window.firebaseStorage) return;
+    try {
+        await window.firebaseStorage.ref(storagePath).delete();
+    } catch (e) {
+        console.warn('Could not delete audio in storage:', e);
+    }
+}
+
+async function uploadLyricsAudioBlob(blob, durationSec, mimeType) {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user || !window.firebaseStorage) {
+        resetLyricsRecordButton();
+        hideLyricsRecordingStatus();
+        return;
+    }
+
+    var data = getMyLyricsData();
+    var fileId = data.currentId;
+    if (!fileId || !data.files[fileId]) {
+        resetLyricsRecordButton();
+        hideLyricsRecordingStatus();
+        return;
+    }
+
+    var btn = document.getElementById('recordLyricsAudioBtn');
+    var statusEl = document.getElementById('myLyricsRecordingStatus');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '上傳中…';
+    }
+    if (statusEl) {
+        statusEl.style.display = '';
+        statusEl.classList.remove('is-idle-hint');
+        statusEl.textContent = '正在準備上傳…（一般約幾秒至一兩分鐘，視網絡而定）';
+    }
+
+    var ext = fileExtForLyricsMime(mimeType);
+    var newPath = 'userLyricsRecordings/' + user.uid + '/' + fileId + '.' + ext;
+    var oldPath = data.files[fileId].audioStoragePath;
+
+    try {
+        if (oldPath && oldPath !== newPath) {
+            await deleteLyricsAudioAtPath(oldPath);
+        }
+
+        var ref = window.firebaseStorage.ref(newPath);
+        var uploadTask = ref.put(blob, { contentType: mimeType || 'audio/webm' });
+        uploadTask.on('state_changed', function (snapshot) {
+            var total = snapshot.totalBytes;
+            var pct = total ? Math.round(100 * snapshot.bytesTransferred / total) : 0;
+            if (statusEl) {
+                statusEl.style.display = '';
+                statusEl.classList.remove('is-idle-hint');
+                statusEl.textContent = '正在上傳錄音至 Firebase… ' + pct + '%';
+            }
+            if (btn && total) {
+                btn.textContent = '上傳中 ' + pct + '%';
+            }
+        });
+        await uploadTask;
+        if (statusEl) {
+            statusEl.textContent = '正在取得連結並同步歌詞資料…';
+        }
+        var downloadUrl = await ref.getDownloadURL();
+
+        saveCurrentFileContentFromUI();
+        data = getMyLyricsData();
+        if (!data.files[fileId]) throw new Error('missing file');
+
+        data.files[fileId].audioUrl = downloadUrl;
+        data.files[fileId].audioStoragePath = newPath;
+        data.files[fileId].audioDurationSec = Math.round(durationSec * 10) / 10;
+        data.files[fileId].audioMimeType = mimeType;
+        data.files[fileId].audioBitrateKbps = 192;
+        data.files[fileId].audioUpdatedAt = new Date().toISOString();
+        data.files[fileId].updatedAt = data.files[fileId].audioUpdatedAt;
+        setMyLyricsData(data);
+
+        await persistMyLyricsToFirestore(false);
+
+        if (statusEl) {
+            statusEl.style.display = '';
+            statusEl.classList.add('is-idle-hint');
+            statusEl.textContent = '錄音已同步至 Firebase（每份歌詞只可儲存一段錄音）。';
+        }
+        updateMyLyricsAudioUI();
+    } catch (error) {
+        console.error('uploadLyricsAudioBlob', error);
+        alert('上傳錄音失敗：' + (error && error.message ? error.message : String(error)));
+        if (statusEl) statusEl.style.display = 'none';
+    } finally {
+        resetLyricsRecordButton();
+    }
+}
+
+async function removeMyLyricsAudio() {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) {
+        alert('請先登入。');
+        return;
+    }
+    if (!confirm('確定要移除此歌詞的錄音？')) return;
+
+    var data = getMyLyricsData();
+    var fileId = data.currentId;
+    if (!fileId || !data.files[fileId]) return;
+
+    var path = data.files[fileId].audioStoragePath;
+    var removeBtn = document.getElementById('removeLyricsAudioBtn');
+    if (removeBtn) removeBtn.disabled = true;
+
+    try {
+        await deleteLyricsAudioAtPath(path);
+        saveCurrentFileContentFromUI();
+        data = getMyLyricsData();
+        if (data.files[fileId]) {
+            delete data.files[fileId].audioUrl;
+            delete data.files[fileId].audioStoragePath;
+            delete data.files[fileId].audioDurationSec;
+            delete data.files[fileId].audioMimeType;
+            delete data.files[fileId].audioBitrateKbps;
+            delete data.files[fileId].audioUpdatedAt;
+            data.files[fileId].updatedAt = new Date().toISOString();
+        }
+        setMyLyricsData(data);
+        await persistMyLyricsToFirestore(false);
+        updateMyLyricsAudioUI();
+        hideLyricsRecordingStatus();
+    } catch (error) {
+        console.error(error);
+        alert('移除錄音失敗：' + (error && error.message ? error.message : String(error)));
+    } finally {
+        if (removeBtn) removeBtn.disabled = false;
+    }
+}
+
+function updateMyLyricsAudioUI() {
+    var wrap = document.getElementById('myLyricsAudioPlayerWrap');
+    var audio = document.getElementById('myLyricsAudioPlayer');
+    var data = getMyLyricsData();
+    var id = data.currentId;
+    var file = id && data.files && data.files[id] ? data.files[id] : null;
+
+    if (!file || !file.audioUrl) {
+        if (wrap) wrap.style.display = 'none';
+        if (audio) {
+            audio.removeAttribute('src');
+            try { audio.load(); } catch (e) { }
+        }
+        return;
+    }
+    if (wrap) wrap.style.display = '';
+    if (audio) {
+        audio.src = file.audioUrl;
+        try { audio.load(); } catch (e) { }
+    }
+}
+
+async function toggleLyricsRecording() {
+    if (myLyricsRecording.mediaRecorder && myLyricsRecording.mediaRecorder.state === 'recording') {
+        stopLyricsRecording();
+        return;
+    }
+    await startLyricsRecording();
+}
+
 function renderMyLyricsFileList() {
     const data = getMyLyricsData();
     const listEl = document.getElementById('lyricsFileList');
@@ -1782,6 +2352,8 @@ function renderMyLyricsFileList() {
         if (nameInput) { nameInput.value = ''; nameInput.disabled = true; }
         if (lyricsTextarea) { lyricsTextarea.value = ''; lyricsTextarea.disabled = true; }
     }
+    updateMyLyricsAudioUI();
+    refreshMyLyricsRemarksUI();
 }
 
 function toggleLyricsFileDropdown() {
@@ -1799,6 +2371,8 @@ function closeLyricsFileDropdown() {
 }
 
 function selectMyLyricsFile(id) {
+    abortLyricsRecordingIfAny();
+    hideLyricsRecordingStatus();
     const data = getMyLyricsData();
     if (!data.files[id]) return;
     data.currentId = id;
@@ -1807,6 +2381,8 @@ function selectMyLyricsFile(id) {
 }
 
 function addMyLyricsFile() {
+    abortLyricsRecordingIfAny();
+    hideLyricsRecordingStatus();
     const data = getMyLyricsData();
     const id = 'file_' + Date.now();
     const count = Object.keys(data.files).length + 1;
@@ -1831,17 +2407,27 @@ function saveCurrentFileContentFromUI() {
 }
 
 function setupMyLyricsModal() {
-    const closeBtn = document.getElementById('closeMyLyricsBtn');
     const closeModalBtn = document.getElementById('closeMyLyricsModal');
     const saveToFirebaseBtn = document.getElementById('saveToFirebaseBtn');
+    const recordLyricsAudioBtn = document.getElementById('recordLyricsAudioBtn');
+    const removeLyricsAudioBtn = document.getElementById('removeLyricsAudioBtn');
+    const deleteCurrentLyricsFileBtn = document.getElementById('deleteCurrentLyricsFileBtn');
     const lyricsTextarea = document.getElementById('lyricsTextarea');
     const addBtn = document.getElementById('addLyricsFileBtn');
     const nameInput = document.getElementById('lyricsFileNameInput');
     const dropdownHeader = document.getElementById('lyricsFileDropdownHeader');
 
-    if (closeBtn) closeBtn.addEventListener('click', closeMyLyricsModal);
     if (closeModalBtn) closeModalBtn.addEventListener('click', closeMyLyricsModal);
+    if (deleteCurrentLyricsFileBtn) deleteCurrentLyricsFileBtn.addEventListener('click', function () {
+        deleteCurrentMyLyricsFile();
+    });
     if (saveToFirebaseBtn) saveToFirebaseBtn.addEventListener('click', saveMyLyricsToFirebase);
+    if (recordLyricsAudioBtn) recordLyricsAudioBtn.addEventListener('click', function () {
+        toggleLyricsRecording();
+    });
+    if (removeLyricsAudioBtn) removeLyricsAudioBtn.addEventListener('click', function () {
+        removeMyLyricsAudio();
+    });
 
     if (dropdownHeader) dropdownHeader.addEventListener('click', toggleLyricsFileDropdown);
 
@@ -2032,6 +2618,7 @@ function restoreMyLyricsPanelSize() {
 }
 
 async function openMyLyricsModal() {
+    closeInboxPanel();
     const splitView = document.getElementById('splitView');
     const lyricsTextarea = document.getElementById('lyricsTextarea');
 
@@ -2050,8 +2637,7 @@ async function openMyLyricsModal() {
     loadMyLyricsFromLocalStorage();
     await loadMyLyricsFromFirebase();
 
-    // Render any admin remark stored on this user's submission doc
-    renderMyLyricsRemarks(window.currentMyLyricsRemarks);
+    refreshMyLyricsRemarksUI();
 
     var data = getMyLyricsData();
     if (Object.keys(data.files || {}).length === 0) {
@@ -2074,6 +2660,8 @@ async function openMyLyricsModal() {
 }
 
 function closeMyLyricsModal() {
+    abortLyricsRecordingIfAny();
+    hideLyricsRecordingStatus();
     const splitView = document.getElementById('splitView');
     if (splitView) {
         splitView.classList.remove('lyrics-open');
@@ -2081,25 +2669,189 @@ function closeMyLyricsModal() {
     }
 }
 
+/** All admin remarks for inbox: newest first; scope line matches admin UI. */
+function formatInboxRemarkLines(remarks, files) {
+    var fileMap = files && typeof files === 'object' ? files : {};
+    if (!Array.isArray(remarks) || remarks.length === 0) return [];
+    var sorted = remarks.slice().sort(function (a, b) {
+        var ta = a && a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        var tb = b && b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+    });
+    return sorted.map(function (r) {
+        var text = r && typeof r.text === 'string' ? r.text : String(r || '');
+        var createdAt = r && r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+        var by = r && (r.byEmail || r.byName) ? (r.byEmail || r.byName) : '';
+        var footer = by || createdAt ? ('— ' + [by, createdAt].filter(Boolean).join(' ')) : '';
+        var scopeLine = '【全部歌詞】';
+        if (r && r.fileId) {
+            var fn = fileMap[r.fileId];
+            scopeLine = '【歌詞：' + (fn && fn.name ? String(fn.name) : r.fileId) + '】';
+        }
+        return scopeLine + '\n' + text + (footer ? ('\n' + footer) : '');
+    });
+}
+
+function setupInboxPanel() {
+    var overlay = document.getElementById('inboxPanelOverlay');
+    var closeBtn = document.getElementById('closeInboxPanel');
+    if (overlay) overlay.addEventListener('click', closeInboxPanel);
+    if (closeBtn) closeBtn.addEventListener('click', closeInboxPanel);
+}
+
+function closeInboxPanel() {
+    var panel = document.getElementById('inboxPanel');
+    if (panel) {
+        panel.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+async function openInboxPanel() {
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (!user) {
+        if (typeof window.openLoginPanel === 'function') {
+            window.openLoginPanel();
+        }
+        alert('請先登入才能查看收件匣。');
+        return;
+    }
+    closeLoginPanel();
+    closeMyLyricsModal();
+
+    var panel = document.getElementById('inboxPanel');
+    var contentEl = document.getElementById('inboxRemarksContent');
+    if (!panel || !contentEl) return;
+
+    panel.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    contentEl.textContent = '載入中…';
+
+    try {
+        var db = window.firebaseDb;
+        if (!db) {
+            contentEl.textContent = '無法載入：雲端尚未就緒。';
+            return;
+        }
+        var docSnap = await db.collection('userLyrics').doc(user.uid).get();
+        var data = docSnap.exists ? docSnap.data() : {};
+        var remarks = normalizeUserLyricsRemarks(data.remarks);
+        var files = (data.files && typeof data.files === 'object') ? data.files : {};
+        var lines = formatInboxRemarkLines(remarks, files);
+        contentEl.textContent = lines.length ? lines.join('\n\n') : '（尚無管理員備註）';
+    } catch (err) {
+        console.error('openInboxPanel', err);
+        contentEl.textContent = '載入失敗：' + (err && err.message ? err.message : String(err));
+    }
+}
+
+function normalizeLyricFileName(name) {
+    return (name && typeof name === 'string') ? name.trim() : '';
+}
+
+/** Firestore `remarks` must be an array; treat anything else as no remarks. */
+function normalizeUserLyricsRemarks(raw) {
+    return Array.isArray(raw) ? raw : [];
+}
+
+function filterRemarksForCurrentFile(remarks, currentFileId, localFiles, serverFiles) {
+    if (!Array.isArray(remarks)) return [];
+    var localFile = currentFileId && localFiles && localFiles[currentFileId] ? localFiles[currentFileId] : null;
+    var localName = localFile ? normalizeLyricFileName(localFile.name) : '';
+    return remarks.filter(function (r) {
+        if (!r || typeof r !== 'object') return false;
+        if (!r.fileId) return true;
+        if (currentFileId && r.fileId === currentFileId) return true;
+        if (localName && serverFiles && typeof serverFiles === 'object') {
+            var sf = serverFiles[r.fileId];
+            var serverName = sf ? normalizeLyricFileName(sf.name) : '';
+            if (serverName && serverName === localName) return true;
+        }
+        if (localName && r.fileName && normalizeLyricFileName(r.fileName) === localName) return true;
+        return false;
+    });
+}
+
+function refreshMyLyricsRemarksUI() {
+    var data = getMyLyricsData();
+    var id = data.currentId;
+    var filtered = filterRemarksForCurrentFile(
+        normalizeUserLyricsRemarks(window.currentMyLyricsRemarks),
+        id,
+        data.files || {},
+        window.myLyricsServerFilesSnapshot || null
+    );
+    renderMyLyricsRemarks(filtered);
+}
+
+function formatMyLyricsRemarkLines(remarks) {
+    if (!Array.isArray(remarks) || remarks.length === 0) return [];
+    return remarks.map(function (r) {
+        const text = r && typeof r.text === 'string' ? r.text : String(r || '');
+        const createdAt = r && r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+        const by = r && (r.byEmail || r.byName) ? (r.byEmail || r.byName) : '';
+        const footer = by || createdAt ? ('— ' + [by, createdAt].filter(Boolean).join(' ')) : '';
+        return text + (footer ? ('\n' + footer) : '');
+    });
+}
+
 function renderMyLyricsRemarks(remarks) {
     const section = document.getElementById('myLyricsRemarkSection');
     const textEl = document.getElementById('myLyricsRemarkText');
     if (!section || !textEl) return;
 
-    if (!Array.isArray(remarks) || remarks.length === 0) {
+    const lines = formatMyLyricsRemarkLines(remarks);
+    if (lines.length === 0) {
         section.style.display = 'none';
         textEl.textContent = '';
         return;
     }
 
-    const latest = remarks[remarks.length - 1];
-    const latestText = latest && typeof latest === 'object' && typeof latest.text === 'string' ? latest.text : String(latest || '');
-    const createdAt = latest && typeof latest === 'object' && latest.createdAt ? new Date(latest.createdAt).toLocaleString() : '';
-    const by = latest && typeof latest === 'object' ? (latest.byEmail || latest.byName || '') : '';
-
-    const footer = (by || createdAt) ? '— ' + [by, createdAt].filter(Boolean).join(' ') : '';
-    textEl.textContent = latestText + (footer ? '\n\n' + footer : '');
+    textEl.textContent = lines.join('\n\n');
     section.style.display = 'block';
+}
+
+async function deleteCurrentMyLyricsFile() {
+    abortLyricsRecordingIfAny();
+    hideLyricsRecordingStatus();
+
+    var data = getMyLyricsData();
+    var id = data.currentId;
+    if (!id || !data.files || !data.files[id]) {
+        alert('沒有可刪除的歌詞檔案。');
+        return;
+    }
+    if (!confirm('確定要刪除此歌詞檔案？內容與錄音將一併從本機移除；若已登入，亦會同步刪除雲端檔案。（此操作無法復原）')) return;
+
+    var path = data.files[id].audioStoragePath;
+    delete data.files[id];
+
+    var remaining = Object.keys(data.files);
+    if (remaining.length === 0) {
+        var newId = 'file_' + Date.now();
+        data.files[newId] = { name: '新歌詞 1', content: '', updatedAt: new Date().toISOString() };
+        data.currentId = newId;
+    } else {
+        data.currentId = remaining[0];
+    }
+    setMyLyricsData(data);
+
+    if (path) {
+        await deleteLyricsAudioAtPath(path);
+    }
+
+    renderMyLyricsFileList();
+    refreshMyLyricsRemarksUI();
+
+    var user = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+    if (user && window.firebaseDb) {
+        try {
+            await persistMyLyricsToFirestore(false);
+        } catch (error) {
+            console.error('deleteCurrentMyLyricsFile sync', error);
+            alert('已從本機刪除，但同步到雲端失敗：' + (error && error.message ? error.message : String(error)));
+        }
+    }
 }
 
 function loadMyLyricsFromLocalStorage() {
@@ -2120,12 +2872,15 @@ async function loadMyLyricsFromFirebase() {
         var docSnap = await docRef.get();
         if (!docSnap.exists()) {
             console.log('No lyrics found in Firebase for this user');
-            window.currentMyLyricsRemarks = null;
+            window.currentMyLyricsRemarks = [];
+            window.myLyricsServerFilesSnapshot = null;
+            refreshMyLyricsRemarksUI();
             return;
         }
         var data = docSnap.data();
+        window.myLyricsServerFilesSnapshot = (data.files && typeof data.files === 'object') ? data.files : {};
         // Used by the student panel to show the latest admin remark (if any).
-        window.currentMyLyricsRemarks = Array.isArray(data && data.remarks) ? data.remarks : null;
+        window.currentMyLyricsRemarks = normalizeUserLyricsRemarks(data && data.remarks);
         var firebaseFiles = data.files;
         var firebaseUpdatedAt = data.updatedAt || '';
         if (!firebaseFiles || typeof firebaseFiles !== 'object') {
@@ -2139,6 +2894,7 @@ async function loadMyLyricsFromFirebase() {
                 setMyLyricsData(local);
                 console.log('✓ Migrated single lyric from Firebase to files');
             }
+            refreshMyLyricsRemarksUI();
             return;
         }
         var local = getMyLyricsData();
@@ -2151,6 +2907,7 @@ async function loadMyLyricsFromFirebase() {
             setMyLyricsData(local);
             console.log('✓ Loaded lyrics files from Firebase');
         }
+        refreshMyLyricsRemarksUI();
     } catch (error) {
         console.warn('Error loading lyrics from Firebase:', error);
     }
@@ -2183,29 +2940,14 @@ async function saveMyLyricsToFirebase() {
     saveBtn.textContent = '儲存中...';
 
     try {
-        if (!window.firebaseDb) throw new Error('Firebase not initialized');
-        var db = window.firebaseDb;
-        var timestamp = new Date().toISOString();
-
-        await db.collection('userLyrics').doc(user.uid).set({
-            files: data.files,
-            updatedAt: timestamp,
-            student: {
-                // Stored so the admin page can show student name/email.
-                name: user.displayName || '',
-                email: user.email || ''
-            }
-        }, { merge: true });
-
-        setMyLyricsData(data);
-        alert('✓ 歌詞已成功儲存到 Firebase！');
-        console.log('✓ Lyrics saved to Firebase for user', user.uid);
+        await persistMyLyricsToFirestore(true);
+        await loadMyLyricsFromFirebase();
     } catch (error) {
         console.error('✗ Error saving lyrics to Firebase:', error);
         if (error.message && error.message.includes('permissions')) {
             alert('⚠ 儲存失敗：Firebase 權限錯誤。請檢查 Firebase 設定。\n\n歌詞已儲存到本地瀏覽器。');
         } else {
-            alert('⚠ 儲存到 Firebase 失敗：' + error.message + '\n\n歌詞已儲存到本地瀏覽器。');
+            alert('⚠ 儲存到 Firebase 失敗：' + (error && error.message ? error.message : String(error)) + '\n\n歌詞已儲存到本地瀏覽器。');
         }
     } finally {
         saveBtn.disabled = false;
@@ -2392,6 +3134,7 @@ function setupLoginPanel() {
 }
 
 function openLoginPanel() {
+    closeInboxPanel();
     var panel = document.getElementById('loginPanel');
     if (!panel) return;
     panel.classList.add('active');
@@ -2429,6 +3172,7 @@ function updateLoginUI(user) {
     var loginUserEmail = document.getElementById('loginUserEmail');
     var signOutBtn = document.getElementById('signOutBtn');
     var myLyricsMenuItem = document.getElementById('myLyricsMenuItem');
+    var inboxMenuItem = document.getElementById('inboxMenuItem');
     var adminMenuItem = document.getElementById('adminMenuItem');
 
     if (!loginLink) return;
@@ -2441,6 +3185,7 @@ function updateLoginUI(user) {
         if (signOutBtn) signOutBtn.style.display = 'block';
         if (loginFormContainer) loginFormContainer.style.display = 'none';
         if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'list-item';
+        if (inboxMenuItem) inboxMenuItem.style.display = 'list-item';
 
         if (adminMenuItem) {
             adminMenuItem.style.display = 'none';
@@ -2469,7 +3214,11 @@ function updateLoginUI(user) {
         if (signOutBtn) signOutBtn.style.display = 'none';
         if (loginFormContainer) loginFormContainer.style.display = 'block';
         if (myLyricsMenuItem) myLyricsMenuItem.style.display = 'none';
+        if (inboxMenuItem) inboxMenuItem.style.display = 'none';
         if (adminMenuItem) adminMenuItem.style.display = 'none';
+        closeInboxPanel();
+        window.currentMyLyricsRemarks = null;
+        window.myLyricsServerFilesSnapshot = null;
     }
 }
 

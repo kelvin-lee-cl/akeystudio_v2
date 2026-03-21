@@ -1,0 +1,14 @@
+rules_version = '2';
+// Deploy: Firebase Console → Storage → Rules (paste), or: firebase deploy --only storage
+//
+// Note: Avoid strict checks on request.resource.contentType / .size during uploads —
+// resumable uploads can fail rule checks on early requests, which returns 403; the
+// browser then misleadingly reports a CORS error on the preflight.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /userLyricsRecordings/{userId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
