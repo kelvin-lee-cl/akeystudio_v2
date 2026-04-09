@@ -55,7 +55,28 @@
     display: none !important;
 }
 
-/* Sidebar Menu */
+/* Results (0243 / 主題詞語 / 主頁): compact hero moved here (JS) — sits to the right of the hamburger */
+.top-nav-hero-slot {
+    position: fixed;
+    top: 20px;
+    left: calc(20px + 50px + 10px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 50px;
+    pointer-events: none;
+}
+
+.top-nav-hero-slot:empty {
+    display: none;
+}
+
+.top-nav-hero-slot .hero-image-container {
+    pointer-events: auto;
+}
+
+/* Sidebar Menu — above fixed hero / nav chrome (z-index 1000) so the drawer overlaps all page content */
 .sidebar-menu {
     position: fixed;
     top: 0;
@@ -65,7 +86,7 @@
     background: white;
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
     transition: left 0.3s ease;
-    z-index: 999;
+    z-index: 10010;
     overflow-y: auto;
 }
 
@@ -209,7 +230,24 @@
     height: 22px;
 }
 
-/* Menu Overlay */
+/* Mobile: social links live in the left drawer (not fixed top-right) */
+@media screen and (max-width: 768px) {
+    .sidebar-menu .social-icons-top-right {
+        position: static;
+        top: auto;
+        right: auto;
+        z-index: auto;
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        padding: 0 20px 16px;
+        margin: 0;
+        border-bottom: 1px solid #e0e0e0;
+        gap: 10px;
+    }
+}
+
+/* Menu Overlay — between page content and sidebar; above hero / top chrome (1000) */
 .menu-overlay {
     position: fixed;
     top: 0;
@@ -220,7 +258,7 @@
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s ease;
-    z-index: 998;
+    z-index: 10005;
 }
 
 .menu-overlay.active {
@@ -460,7 +498,7 @@ body.results-visible-fullsong .hero-image {
         transform 0.25s ease;
 }
 
-/* Input bar pinned to the top row, to the right of the hero icon */
+/* Sticky bar when results are visible (hero moved inline via JS adds .input-section--hero-inline) */
 body.results-visible-0243 .input-section,
 body.results-visible-topic .input-section,
 body.results-visible-fullsong .input-section {
@@ -473,19 +511,74 @@ body.results-visible-fullsong .input-section {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Hero + #lyricForm in one row (JS: moveHeroForResults → .input-section--hero-inline) */
+.input-section.input-section--hero-inline {
     display: flex;
     flex-direction: row;
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: center;
     gap: 10px;
 }
 
-body.results-visible-0243 .input-section .input-group,
-body.results-visible-topic .input-section .input-group,
-body.results-visible-fullsong .input-section .input-group {
+/* Form grows beside hero (avoid width:100% on flex item — it fights the row layout) */
+.input-section.input-section--hero-inline form#lyricForm {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: min(720px, calc(100% - 54px));
+    box-sizing: border-box;
+}
+
+.input-section.input-section--hero-inline .hero-image-container.hero-inline-with-input {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0;
+}
+
+.input-section.input-section--hero-inline .input-group {
     width: 100%;
-    max-width: min(720px, 100vw - 40px);
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
+    margin-bottom: 0;
+}
+
+/*
+ * Textareas use narrow intrinsic widths (e.g. 30ch) — the send button is anchored to .input-wrapper,
+ * so it sat outside the bordered field. Force full width so the arrow stays inside the input box.
+ */
+.input-section.input-section--hero-inline .input-group textarea,
+.input-section.input-section--hero-inline .input-group input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.input-section.input-section--hero-inline .input-wrapper {
+    width: 100%;
+}
+
+.input-section.input-section--hero-inline .send-icon-btn {
+    right: 12px;
+    z-index: 2;
+}
+
+@media screen and (min-width: 769px) {
+    .input-section.input-section--hero-inline .input-group textarea.mode-0243 {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    @supports (field-sizing: content) {
+
+        .input-section.input-section--hero-inline .input-group textarea.mode-0243,
+        .input-section.input-section--hero-inline .input-group textarea.home-phrase-mode {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
+    }
 }
 
 /* In 主題詞語 mode, show a label to the left of the input box */
@@ -497,7 +590,7 @@ body.results-visible-topic .input-section .input-group {
 
 
 body.results-visible-topic .input-section .input-wrapper {
-    flex: 1 1 auto;
+    flex: 0 0 50%;
 }
 
 /* When scrolled down in 0243 / 主題詞語 mode, fade/collapse the hero icon */
@@ -513,21 +606,24 @@ body.hero-collapsed-0243 .hero-image {
     transform: scale(0.9);
 }
 
+/* Hero beside hamburger stays visible (fixed; not the empty header band) */
+body.hero-collapsed-0243 .hero-image-container.hero-inline-top-nav {
+    opacity: 1;
+    transform: none;
+    max-height: 60px;
+    pointer-events: auto;
+}
+
+body.hero-collapsed-0243 .hero-image-container.hero-inline-top-nav .hero-image {
+    opacity: 1;
+    transform: none;
+}
+
 /* Give results a little breathing room below the sticky input */
 body.results-visible-0243 .results-section,
 body.results-visible-topic .results-section,
 body.results-visible-fullsong .results-section {
     padding-top: 22px;
-}
-
-/*
- * Home full song: scroll the main pane only — no max-height box inside results
- * (avoids double scroll and “trapped” lyrics).
- */
-body.results-visible-fullsong .results-section {
-    max-height: none;
-    overflow: visible;
-    -webkit-overflow-scrolling: auto;
 }
 
 /*
@@ -550,14 +646,6 @@ body.results-visible-fullsong .split-view:not(.lyrics-open) .split-view-main-pan
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-}
-
-body.results-visible-fullsong .container {
-    display: flex;
-    flex-direction: column;
-    min-height: min-content;
-    overflow-x: hidden;
-    overflow-y: visible;
 }
 
 /* Lyrics panel open: split is already viewport-tall — keep main pane as the scrollport */
@@ -591,13 +679,68 @@ body.results-visible-topic .split-view:not(.lyrics-open) .split-view-main-pane {
     -webkit-overflow-scrolling: touch;
 }
 
+/*
+ * 0243 results: lock split to viewport on desktop too (mobile block also sets this <768px).
+ */
+body.results-visible-0243 .split-view:not(.lyrics-open) {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+}
+
+body.results-visible-0243 .split-view:not(.lyrics-open) .split-view-main-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.results-visible-0243 .container,
 body.topic-page .container,
-body.results-visible-topic .container {
+body.results-visible-topic .container,
+body.results-visible-fullsong .container {
     display: flex;
     flex-direction: column;
-    min-height: min-content;
+    min-height: 100vh;
+    min-height: 100dvh;
     overflow-x: hidden;
     overflow-y: visible;
+}
+
+body.results-visible-0243 .container>header,
+body.results-visible-0243 .container>.input-section,
+body.results-visible-0243 .container>#errorMessage,
+body.topic-page .container>header,
+body.topic-page .container>.input-section,
+body.topic-page .container>#errorMessage,
+body.results-visible-topic .container>header,
+body.results-visible-topic .container>.input-section,
+body.results-visible-topic .container>#errorMessage,
+body.results-visible-fullsong .container>header,
+body.results-visible-fullsong .container>.input-section,
+body.results-visible-fullsong .container>#errorMessage,
+body.results-visible-fullsong .container>#homeLyricsLoading {
+    flex-shrink: 0;
+}
+
+/*
+ * 0243 / 主題詞語 / full-song: scroll #mainPane only — no inner max-height on .results-section
+ * (avoids double scroll, empty white band below short results).
+ */
+body.results-visible-0243 .results-section,
+body.results-visible-topic .results-section,
+body.results-visible-fullsong .results-section {
+    flex: 1 1 auto;
+    min-height: min-content;
+    max-height: none;
+    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: auto;
 }
 
 header h1 {
@@ -625,13 +768,38 @@ header h1 {
 }
 
 .input-section {
-    padding: 0;
+    margin-top: 0px;
     background: white;
     position: relative;
     z-index: 100;
     display: flex;
     flex-direction: column;
     align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Home: form hugs the field width on desktop; full width on small screens */
+.input-section form#lyricForm {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0 clamp(12px, 3vw, 28px);
+    box-sizing: border-box;
+}
+
+@media screen and (min-width: 769px) {
+    body:not(.results-visible-0243):not(.results-visible-topic):not(.results-visible-fullsong) .input-section form#lyricForm {
+        width: fit-content;
+        max-width: 100%;
+    }
+}
+
+/* Desktop: space between hero image and input (hero still in header; not compact results modes) */
+@media screen and (min-width: 769px) {
+    body:not(.results-visible-0243):not(.results-visible-topic):not(.results-visible-fullsong) .input-section {
+        margin-top: 50px;
+    }
 }
 
 .input-group {
@@ -655,7 +823,39 @@ header h1 {
     width: 100%;
 }
 
-.input-group input {
+body.results-visible-0243 .input-section .input-wrapper,
+body.results-visible-fullsong .input-section .input-wrapper {
+    width: 50%;
+}
+
+/*
+ * The send button is positioned against .input-wrapper; if the textarea is narrower than
+ * the wrapper, the arrow sits outside the border. Cap width on the wrapper and keep the
+ * textarea at 100% so the arrow stays inside the box. Center the block with margin auto.
+ */
+.input-wrapper:has(.send-icon-btn) {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.input-wrapper:has(textarea.home-phrase-mode) {
+    max-width: min(100%, 30ch);
+}
+
+@media screen and (min-width: 769px) {
+    .input-wrapper:has(textarea.mode-0243) {
+        max-width: min(100%, 44ch);
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .input-wrapper:has(textarea.home-phrase-mode) {
+        max-width: 100%;
+    }
+}
+
+.input-group input,
+.input-group textarea {
     width: 100%;
     padding: 15px 50px 15px 15px;
     font-size: 1.2em;
@@ -664,6 +864,45 @@ header h1 {
     transition: all 0.3s ease;
     font-family: 'Courier New', monospace;
     text-align: center;
+    box-sizing: border-box;
+}
+
+.input-group textarea {
+    resize: none;
+    overflow-y: auto;
+    min-height: 2.75rem;
+    line-height: 1.45;
+}
+
+.input-group textarea.mode-0243 {
+    font-family: 'Courier New', monospace;
+    text-align: center;
+}
+
+/* 0243: desktop — width comes from .input-wrapper (arrow stays inside border) */
+@media screen and (min-width: 769px) {
+    .input-group textarea.mode-0243 {
+        width: 100%;
+        max-width: 100%;
+        min-height: 3.35rem;
+        overflow-y: hidden;
+    }
+}
+
+@supports (field-sizing: content) {
+    @media screen and (min-width: 769px) {
+        .input-wrapper:has(textarea.mode-0243) {
+            min-width: 28ch;
+            max-width: min(100%, 96vw);
+        }
+
+        .input-group textarea.mode-0243 {
+            field-sizing: content;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
+    }
 }
 
 .send-icon-btn {
@@ -698,26 +937,77 @@ header h1 {
     height: 20px;
 }
 
-.input-group input:focus {
+.input-group input:focus,
+.input-group textarea:focus {
     outline: none;
     border-color: #333;
     box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
-.input-group input.chatbot-mode {
+.input-group input.chatbot-mode,
+.input-group textarea.chatbot-mode {
     text-align: left;
     padding-left: 15px;
+    font-family: inherit;
 }
 
-.input-group input.topic-mode {
+.input-group input.topic-mode,
+.input-group textarea.topic-mode {
     text-align: center;
     padding-left: 15px;
 }
 
-.input-group input.home-phrase-mode {
-    text-align: left;
-    padding-left: 15px;
+/* Desktop: one-line placeholder; width on .input-wrapper keeps send arrow inside border */
+.input-group textarea.home-phrase-mode {
+    text-align: center;
     font-family: inherit;
+    min-height: 3.35rem;
+    padding: 1rem 3.35rem;
+    line-height: 1.5;
+    font-size: clamp(1rem, 0.35vw + 0.92rem, 1.25rem);
+    width: 100%;
+    max-width: 100%;
+}
+
+@supports (field-sizing: content) {
+    @media screen and (min-width: 769px) {
+        .input-wrapper:has(textarea.home-phrase-mode) {
+            min-width: 28ch;
+            max-width: min(100%, 96vw);
+        }
+
+        .input-group textarea.home-phrase-mode {
+            field-sizing: content;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
+    }
+}
+
+@media screen and (min-width: 769px) {
+    .input-group textarea.home-phrase-mode {
+        overflow-y: hidden;
+    }
+}
+
+/* Mobile: two-line placeholder (rows + JS), full width, taller */
+@media screen and (max-width: 768px) {
+    .input-group textarea.home-phrase-mode {
+        width: 100%;
+        min-width: 0;
+        min-height: 4.75rem;
+        overflow-y: auto;
+        padding: 0.85rem 2.75rem;
+        line-height: 1.45;
+        font-size: clamp(0.95rem, 2.4vw, 1.05rem);
+        text-align: center;
+    }
+
+    .input-wrapper:has(textarea.home-phrase-mode) .send-icon-btn {
+        top: 50%;
+        transform: translateY(-50%);
+    }
 }
 
 .send-icon-btn:disabled,
@@ -799,10 +1089,6 @@ header h1 {
 
 .topic-btn.topic-btn--result-word .topic-label {
     font-size: 1.35em;
-}
-
-.topic-words-result .pattern-header h3 {
-    font-size: 1.15em;
 }
 
 .topic-btn {
@@ -965,6 +1251,15 @@ button:disabled {
 .result-header h2 {
     color: #333;
     font-size: 2em;
+}
+
+/* Match 0243 results heading across 主題詞語 / 主頁 full-song */
+body.results-visible-0243 .result-header h2,
+body.results-visible-topic .result-header h2,
+body.results-visible-fullsong .result-header h2 {
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 0;
 }
 
 .header-buttons {
@@ -2226,63 +2521,9 @@ button:disabled {
 /* 0243 mobile: full-bleed pattern groups; phrase cells row layout (not column flex) */
 @media screen and (max-width: 768px) {
 
-    /*
-     * Without a fixed-height split view, #mainPane grows with content and overflow-y:auto
-     * never creates a scrollport — scroll falls through to the document, which often fails
-     * on mobile Safari. Match the lyrics-open pattern: viewport-tall split view + main pane scrolls.
-     */
-    /* Full-song: viewport lock is global (all widths); 0243 still needs it here on small screens. */
-    body.results-visible-0243 .split-view:not(.lyrics-open) {
-        height: 100vh;
-        height: 100dvh;
-        max-height: 100vh;
-        max-height: 100dvh;
-        min-height: 0;
-        overflow: hidden;
-    }
-
-    body.results-visible-0243 .split-view:not(.lyrics-open) .split-view-main-pane {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    /* Fill viewport so there is no empty white band below the results (short lists). */
-    body.results-visible-0243 .container,
-    body.topic-page .container,
-    body.results-visible-topic .container {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        min-height: 100dvh;
-        /* Override global .container overflow:hidden — it clips tall results and breaks scroll. */
-        overflow-x: hidden;
-        overflow-y: visible;
-    }
-
+    /* Full-song: extra bottom inset on small screens (global rules handle viewport fill). */
     body.results-visible-fullsong .container {
-        min-height: 100vh;
-        min-height: 100dvh;
-        /* Space below lyrics + copy row; clear home indicator / safe area */
         padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
-    }
-
-    body.results-visible-0243 .container>header,
-    body.results-visible-0243 .container>.input-section,
-    body.results-visible-0243 .container>#errorMessage,
-    body.topic-page .container>header,
-    body.topic-page .container>.input-section,
-    body.topic-page .container>#errorMessage,
-    body.results-visible-topic .container>header,
-    body.results-visible-topic .container>.input-section,
-    body.results-visible-topic .container>#errorMessage,
-    body.results-visible-fullsong .container>header,
-    body.results-visible-fullsong .container>.input-section,
-    body.results-visible-fullsong .container>#errorMessage,
-    body.results-visible-fullsong .container>#homeLyricsLoading {
-        flex-shrink: 0;
     }
 
     body.results-visible-0243 .results-section,
@@ -2291,26 +2532,23 @@ button:disabled {
         padding-left: 2px;
         padding-right: 2px;
         padding-bottom: 0;
-        flex: 1 1 auto;
-        /* min-height:0 let the flex item shrink below its content — clipped + no usable scroll on mobile. */
-        min-height: min-content;
-        max-height: none;
-        overflow-x: hidden;
-        overflow-y: visible;
     }
 
     body.results-visible-0243 .pattern-group:last-child,
+    body.results-visible-topic .pattern-group:last-child,
     body.results-visible-fullsong .pattern-group:last-child {
         margin-bottom: 0;
     }
 
     body.results-visible-0243 .result-header,
+    body.results-visible-topic .result-header,
     body.results-visible-fullsong .result-header {
         padding-left: 16px;
         padding-right: 16px;
     }
 
     body.results-visible-0243 .pattern-group,
+    body.results-visible-topic .pattern-group,
     body.results-visible-fullsong .pattern-group {
         padding: 0;
         width: 100%;
@@ -2319,6 +2557,7 @@ button:disabled {
     }
 
     body.results-visible-0243 .pattern-header,
+    body.results-visible-topic .pattern-header,
     body.results-visible-fullsong .pattern-header {
         padding-left: 16px;
         padding-right: 16px;
@@ -2372,10 +2611,6 @@ button:disabled {
 
 /* Mobile Responsive Styles */
 @media screen and (max-width: 768px) {
-    body.sidebar-open .social-icons-top-right {
-        display: none;
-    }
-
     header {
         height: auto;
         min-height: 40vh;
@@ -2403,7 +2638,8 @@ button:disabled {
         padding: 0;
     }
 
-    .input-group input {
+    .input-group input,
+    .input-group textarea:not(.home-phrase-mode) {
         padding: 12px 45px 12px 12px;
         font-size: 1em;
     }
@@ -2481,9 +2717,15 @@ button:disabled {
         padding: 0;
     }
 
-    .input-group input {
+    .input-group input,
+    .input-group textarea:not(.home-phrase-mode) {
         padding: 10px 40px 10px 10px;
         font-size: 0.95em;
+    }
+
+    .input-group textarea.home-phrase-mode {
+        min-height: 4.5rem;
+        padding: 0.72rem 2.5rem;
     }
 
     .send-icon-btn {

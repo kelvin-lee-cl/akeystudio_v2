@@ -250,6 +250,22 @@ document.addEventListener('DOMContentLoaded', function () {
         lyricForm.addEventListener('submit', handleFormSubmit);
     }
 
+    function syncInputDigitsTextareaLayout() {
+        syncHomePhraseTextareaLayout();
+        sync0243TextareaLayout();
+    }
+    syncInputDigitsTextareaLayout();
+    window.addEventListener('resize', syncInputDigitsTextareaLayout);
+
+    const inputDigitsEl = document.getElementById('inputDigits');
+    if (inputDigitsEl) {
+        inputDigitsEl.addEventListener('keydown', function (e) {
+            if (this.classList.contains('mode-0243') && e.key === 'Enter') {
+                e.preventDefault();
+            }
+        });
+    }
+
     loadLocalStorageCache();
 
     void loadTopicLexicon().then(function () {
@@ -378,8 +394,8 @@ document.addEventListener('DOMContentLoaded', function () {
     window.openMyLyricsModal = openMyLyricsModal;
     window.openInboxPanel = openInboxPanel;
 
-    // Hero image: in 0243 / 主題詞語 results mode it becomes a small “navbar icon”
-    // that sits directly next to the input box.
+    // Hero image: in 0243 / 主題詞語 / 主頁 full-song results mode it becomes a small icon next to
+    // the hamburger (see moveHeroForResults → #topNavHeroSlot).
     // Clicking it re-expands the header if it has been collapsed while scrolling.
     const heroImage = document.getElementById('heroImage');
     const heroContainer = heroImage ? heroImage.closest('.hero-image-container') : null;
@@ -388,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function () {
         heroClickTarget.addEventListener('click', function () {
             // Only react for the compact-header experiences.
             const mode = document.body.dataset.lastResultMode;
-            if (mode !== '0243' && mode !== 'topic') return;
+            if (mode !== '0243' && mode !== 'topic' && mode !== 'fullsong') return;
 
             // Re-open / expand the hero header.
             document.body.classList.remove('hero-collapsed-0243');
@@ -401,18 +417,45 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 
-// Move hero image container so it sits directly next to the input box.
-function moveHeroNextToInput() {
+/**
+ * Place the compact hero for results: fixed slot next to the hamburger (same for 0243 / 主題詞語 / 主頁).
+ */
+function moveHeroForResults() {
     const heroContainer = document.querySelector('.hero-image-container');
     const inputSection = document.querySelector('.input-section');
+    const topNavSlot = document.getElementById('topNavHeroSlot');
+    const mode = document.body.dataset.lastResultMode;
     if (!heroContainer || !inputSection) return;
 
-    // Already moved?
-    if (inputSection.contains(heroContainer)) return;
+    const useNavSlot =
+        !!topNavSlot &&
+        (mode === '0243' || mode === 'topic' || mode === 'fullsong');
 
-    // Insert hero at the start of the input section row.
+    if (useNavSlot) {
+        inputSection.classList.remove('input-section--hero-inline');
+        heroContainer.classList.remove('hero-inline-with-input');
+        heroContainer.classList.add('hero-inline-top-nav');
+        if (heroContainer.parentNode !== topNavSlot) {
+            if (heroContainer.parentNode) heroContainer.parentNode.removeChild(heroContainer);
+            topNavSlot.appendChild(heroContainer);
+        }
+        return;
+    }
+
+    heroContainer.classList.remove('hero-inline-top-nav');
+    if (topNavSlot && topNavSlot.contains(heroContainer)) {
+        topNavSlot.removeChild(heroContainer);
+    }
+
+    if (inputSection.contains(heroContainer)) {
+        inputSection.classList.add('input-section--hero-inline');
+        heroContainer.classList.add('hero-inline-with-input');
+        return;
+    }
+
     inputSection.insertBefore(heroContainer, inputSection.firstChild);
     heroContainer.classList.add('hero-inline-with-input');
+    inputSection.classList.add('input-section--hero-inline');
 }
 
 /**
@@ -437,12 +480,12 @@ function scrollElementIntoMainPane(el, options) {
 
 /**
  * Move hero inline first, wait for layout, then scroll the main pane to the results block.
- * Order matters: scrolling before `moveHeroNextToInput` leaves results off-screen (felt like “submit twice”).
+ * Order matters: scrolling before `moveHeroForResults` leaves results off-screen (felt like “submit twice”).
  */
 function revealResultsSectionInMainPane() {
     const resultsSection = document.getElementById('resultsSection');
     if (!resultsSection) return;
-    moveHeroNextToInput();
+    moveHeroForResults();
     resultsSection.scrollTop = 0;
     requestAnimationFrame(function () {
         requestAnimationFrame(function () {
@@ -455,11 +498,22 @@ function revealResultsSectionInMainPane() {
 function resetHeroPosition() {
     const heroContainer = document.querySelector('.hero-image-container');
     const header = document.querySelector('header');
+    const inputSection = document.querySelector('.input-section');
+    const topNavSlot = document.getElementById('topNavHeroSlot');
+    if (inputSection) inputSection.classList.remove('input-section--hero-inline');
+    if (heroContainer) {
+        heroContainer.classList.remove('hero-inline-with-input', 'hero-inline-top-nav');
+    }
     if (!heroContainer || !header) return;
+
+    if (topNavSlot && topNavSlot.contains(heroContainer)) {
+        topNavSlot.removeChild(heroContainer);
+    } else if (inputSection && inputSection.contains(heroContainer)) {
+        inputSection.removeChild(heroContainer);
+    }
 
     if (header.contains(heroContainer)) return;
     header.insertBefore(heroContainer, header.firstChild);
-    heroContainer.classList.remove('hero-inline-with-input');
 }
 window.resetHeroPosition = resetHeroPosition;
 
@@ -481,7 +535,7 @@ function setupHeroCollapseOnScroll() {
 
     const onScroll = () => {
         const mode = document.body.dataset.lastResultMode;
-        if (mode !== '0243' && mode !== 'topic') {
+        if (mode !== '0243' && mode !== 'topic' && mode !== 'fullsong') {
             document.body.classList.remove('hero-collapsed-0243');
             return;
         }
@@ -897,6 +951,35 @@ function setHomePhraseUiLoading(isLoading) {
 
 window.setHomePhraseUiLoading = setHomePhraseUiLoading;
 
+/**
+ * Home phrase textarea: desktop = one-line placeholder; mobile = two-line placeholder + 2 rows.
+ */
+function syncHomePhraseTextareaLayout() {
+    const el = document.getElementById('inputDigits');
+    if (!el || !el.classList.contains('home-phrase-mode')) return;
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        el.placeholder = '輸入一句靈感或主題，按傳送生成\n完整粵語歌詞';
+        el.rows = 2;
+    } else {
+        el.placeholder = '輸入一句靈感或主題，按傳送生成完整粵語歌詞';
+        el.rows = 1;
+    }
+}
+
+window.syncHomePhraseTextareaLayout = syncHomePhraseTextareaLayout;
+
+/**
+ * 0243 textarea: one line everywhere (desktop width handled in CSS; mobile stays single-row for 2 digits).
+ */
+function sync0243TextareaLayout() {
+    const el = document.getElementById('inputDigits');
+    if (!el || !el.classList.contains('mode-0243')) return;
+    el.placeholder = '你填數字我揾詞！(0–9，兩個數字)';
+    el.rows = 1;
+}
+
+window.sync0243TextareaLayout = sync0243TextareaLayout;
+
 // Handle form submission
 async function handleFormSubmit(event) {
     event.preventDefault();
@@ -909,7 +992,19 @@ async function handleFormSubmit(event) {
     const errorMessage = document.getElementById('errorMessage');
     const resultsSection = document.getElementById('resultsSection');
 
-    const input = inputDigits.value.trim();
+    const raw = inputDigits.value;
+    const is0243Mode = inputDigits.classList.contains('mode-0243');
+    const isTopicMode = inputDigits.classList.contains('topic-mode');
+    const isHomePhraseMode = inputDigits.classList.contains('home-phrase-mode');
+
+    let input;
+    if (is0243Mode) {
+        input = raw.replace(/\D/g, '').slice(0, 2);
+    } else if (isHomePhraseMode) {
+        input = raw.trim().replace(/\s+/g, ' ');
+    } else {
+        input = raw.trim();
+    }
 
     // Hide error message
     if (errorMessage) {
@@ -918,7 +1013,6 @@ async function handleFormSubmit(event) {
 
     // Check if it's 0243 page mode (lookup words from 0243.json)
     // Accept 2 digits 0–9: 1＝3＝9, 4＝5＝8, 2＝6, 0＝0
-    const is0243Mode = inputDigits.classList.contains('mode-0243');
     if (is0243Mode && /^[0-9]{2}$/.test(input)) {
         const canonicalPattern = normalize0243Input(input);
         if (!canonicalPattern) {
@@ -969,7 +1063,6 @@ async function handleFormSubmit(event) {
     }
 
     // Check if it's topic mode (主題詞語): two related words only — no tone patterns
-    const isTopicMode = inputDigits.classList.contains('topic-mode');
     let actualInput = input;
 
     if (isTopicMode) {
@@ -1006,7 +1099,7 @@ async function handleFormSubmit(event) {
                 resultsSection.style.display = 'block';
                 document.body.classList.add('results-visible-0243');
                 document.body.classList.remove('results-visible-topic', 'topic-page', 'hero-collapsed-0243');
-                document.body.dataset.lastResultMode = '0243';
+                document.body.dataset.lastResultMode = 'topic';
                 const topicButtonsContainer = document.getElementById('topicButtonsContainer');
                 if (topicButtonsContainer) topicButtonsContainer.style.display = 'none';
                 revealResultsSectionInMainPane();
@@ -1023,7 +1116,6 @@ async function handleFormSubmit(event) {
     }
 
     // Home page: free phrase → full Cantonese song (DeepSeek)
-    const isHomePhraseMode = inputDigits.classList.contains('home-phrase-mode');
     if (isHomePhraseMode) {
         const phrase = input;
         if (!phrase) {
@@ -3177,8 +3269,12 @@ function updateLoginUI(user) {
 
     if (!loginLink) return;
 
+    var loginMenuLabel = loginLink.querySelector('.menu-item-label');
+
     if (user) {
-        loginLink.textContent = user.email || user.displayName || '已登入';
+        var loggedInLabel = user.email || user.displayName || '已登入';
+        if (loginMenuLabel) loginMenuLabel.textContent = loggedInLabel;
+        else loginLink.textContent = loggedInLabel;
         loginLink.href = '#login';
         if (loginAuthState) loginAuthState.style.display = 'block';
         if (loginUserEmail) loginUserEmail.textContent = '已登入：' + (user.email || '');
@@ -3207,7 +3303,8 @@ function updateLoginUI(user) {
             }
         }
     } else {
-        loginLink.textContent = '登入';
+        if (loginMenuLabel) loginMenuLabel.textContent = '登入';
+        else loginLink.textContent = '登入';
         loginLink.href = '#login';
         if (loginAuthState) loginAuthState.style.display = 'none';
         if (loginUserEmail) loginUserEmail.textContent = '';
