@@ -49,7 +49,7 @@
                 </svg>
             </a>
             <a href="mailto:Akeystudio.hk@gmail.com" target="_blank" rel="noopener noreferrer" aria-label="Email"
-                style="display: none;" class="social-icon email">
+                class="social-icon email">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                     <path
                         d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
@@ -73,6 +73,8 @@
     <!-- Overlay for mobile menu -->
     <div class="menu-overlay" id="menuOverlay"></div>
 
+    <button type="button" id="regenerateBtn" class="regenerate-btn" style="display: none;">🔄 Regenerate</button>
+
     <div class="split-view" id="splitView">
         <div class="split-view-main-pane" id="mainPane">
             <div class="container">
@@ -86,8 +88,7 @@
                         <div class="input-group" id="lyricInputGroup">
                             <div class="input-wrapper">
                                 <textarea id="inputDigits" name="inputDigits" class="home-phrase-mode" rows="1"
-                                    placeholder="輸入一句靈感或主題，按傳送生成完整粵語歌詞" maxlength="500" autocomplete="off"
-                                    required></textarea>
+                                    placeholder="輸入主題，生成歌詞" maxlength="500" autocomplete="off" required></textarea>
                                 <button type="submit" class="send-icon-btn" id="sendLyricsBtn" aria-label="傳送">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
                                         xmlns="http://www.w3.org/2000/svg">
@@ -119,8 +120,6 @@
                     <div class="result-header">
                         <h2 style="color:white;">Results</h2>
                         <div class="header-buttons">
-                            <button id="regenerateBtn" class="regenerate-btn" style="display: none;">🔄
-                                Regenerate</button>
                             <button id="updateCacheBtn" class="copy-btn" style="display: none;">💾 Update Cache</button>
                             <button id="selectAllBtn" class="copy-btn" style="display: none;">✓ Select All</button>
                             <button id="deleteSelectedBtn" class="delete-btn" style="display: none;">🗑️ Delete Selected

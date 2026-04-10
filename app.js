@@ -952,18 +952,13 @@ function setHomePhraseUiLoading(isLoading) {
 window.setHomePhraseUiLoading = setHomePhraseUiLoading;
 
 /**
- * Home phrase textarea: desktop = one-line placeholder; mobile = two-line placeholder + 2 rows.
+ * Home phrase textarea: one row on all viewports.
  */
 function syncHomePhraseTextareaLayout() {
     const el = document.getElementById('inputDigits');
     if (!el || !el.classList.contains('home-phrase-mode')) return;
-    if (window.matchMedia('(max-width: 768px)').matches) {
-        el.placeholder = '輸入一句靈感或主題，按傳送生成\n完整粵語歌詞';
-        el.rows = 2;
-    } else {
-        el.placeholder = '輸入一句靈感或主題，按傳送生成完整粵語歌詞';
-        el.rows = 1;
-    }
+    el.placeholder = '輸入主題，生成歌詞';
+    el.rows = 1;
 }
 
 window.syncHomePhraseTextareaLayout = syncHomePhraseTextareaLayout;
@@ -974,7 +969,7 @@ window.syncHomePhraseTextareaLayout = syncHomePhraseTextareaLayout;
 function sync0243TextareaLayout() {
     const el = document.getElementById('inputDigits');
     if (!el || !el.classList.contains('mode-0243')) return;
-    el.placeholder = '你填數字我揾詞！(0–9，兩個數字)';
+    el.placeholder = '填數字(0–9，兩個數字)';
     el.rows = 1;
 }
 
@@ -3269,12 +3264,8 @@ function updateLoginUI(user) {
 
     if (!loginLink) return;
 
-    var loginMenuLabel = loginLink.querySelector('.menu-item-label');
-
     if (user) {
-        var loggedInLabel = user.email || user.displayName || '已登入';
-        if (loginMenuLabel) loginMenuLabel.textContent = loggedInLabel;
-        else loginLink.textContent = loggedInLabel;
+        loginLink.textContent = user.email || user.displayName || '已登入';
         loginLink.href = '#login';
         if (loginAuthState) loginAuthState.style.display = 'block';
         if (loginUserEmail) loginUserEmail.textContent = '已登入：' + (user.email || '');
@@ -3303,8 +3294,7 @@ function updateLoginUI(user) {
             }
         }
     } else {
-        if (loginMenuLabel) loginMenuLabel.textContent = '登入';
-        else loginLink.textContent = '登入';
+        loginLink.textContent = '登入';
         loginLink.href = '#login';
         if (loginAuthState) loginAuthState.style.display = 'none';
         if (loginUserEmail) loginUserEmail.textContent = '';
