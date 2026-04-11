@@ -1240,9 +1240,12 @@ function displayResults(result) {
     const resultsContainer = document.getElementById('resultsContainer');
     if (!resultsContainer) return;
 
+    const regenerateBtn = document.getElementById('regenerateBtn');
+    if (regenerateBtn && resultsContainer.contains(regenerateBtn)) {
+        document.body.appendChild(regenerateBtn);
+    }
     resultsContainer.innerHTML = '';
     clearResultCopySelection();
-    const regenerateBtn = document.getElementById('regenerateBtn');
     if (regenerateBtn) regenerateBtn.style.display = 'none';
 
     // Home: full Cantonese song (plain text)
@@ -1278,6 +1281,12 @@ function displayResults(result) {
             });
         });
         copyRow.appendChild(copyBtn);
+        if (regenerateBtn) {
+            regenerateBtn.style.display = 'inline-flex';
+            regenerateBtn.textContent = '🔄 重新生成';
+            regenerateBtn.disabled = false;
+            copyRow.appendChild(regenerateBtn);
+        }
         wrap.appendChild(copyRow);
         resultsContainer.appendChild(wrap);
         window.currentResult = result;
@@ -1287,10 +1296,6 @@ function displayResults(result) {
 
     // Topic words mode: show 主題詞語 boxes only, no tone patterns
     if (result.topicModeWords && Array.isArray(result.relatedWords) && result.relatedWords.length > 0) {
-        if (regenerateBtn) {
-            regenerateBtn.style.display = 'inline-flex';
-            regenerateBtn.textContent = '🔄 換其他詞語';
-        }
         const wrap = document.createElement('div');
         wrap.className = 'pattern-group topic-words-result';
         const patternHeader = document.createElement('div');
@@ -1315,6 +1320,15 @@ function displayResults(result) {
             grid.appendChild(btn);
         });
         wrap.appendChild(grid);
+        const topicActionsRow = document.createElement('div');
+        topicActionsRow.className = 'full-song-copy-row';
+        if (regenerateBtn) {
+            regenerateBtn.style.display = 'inline-flex';
+            regenerateBtn.textContent = '🔄 換其他詞語';
+            regenerateBtn.disabled = false;
+            topicActionsRow.appendChild(regenerateBtn);
+        }
+        wrap.appendChild(topicActionsRow);
         resultsContainer.appendChild(wrap);
         window.currentResult = result;
         updateJsonOutput(result);

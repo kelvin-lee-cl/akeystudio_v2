@@ -257,6 +257,7 @@
     background: rgba(0, 0, 0, 0.5);
     opacity: 0;
     visibility: hidden;
+    pointer-events: none;
     transition: all 0.3s ease;
     z-index: 10005;
 }
@@ -264,6 +265,7 @@
 .menu-overlay.active {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
 }
 
 body {
@@ -1043,6 +1045,10 @@ body.results-visible-0243 .input-section .input-wrapper:has(textarea.mode-0243) 
 
 .full-song-copy-row {
     margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
 }
 
 .hint {
@@ -1300,26 +1306,10 @@ body.results-visible-fullsong .result-header h2 {
     border-radius: 5px;
     cursor: pointer;
     transition: background 0.3s ease;
-}
-
-/* Fixed top-right: above sticky input bar (z-index 300); below modals / main nav chrome (z-index 1000) */
-#regenerateBtn.regenerate-btn {
-    position: fixed;
-    left: auto;
-    right: max(16px, env(safe-area-inset-right, 0px));
-    top: max(20px, env(safe-area-inset-top, 0px));
-    z-index: 999;
-    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     white-space: nowrap;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-@media screen and (min-width: 769px) {
-
-    /* Below fixed social icon strip (top-right) so icons stay clickable */
-    #regenerateBtn.regenerate-btn {
-        top: calc(max(20px, env(safe-area-inset-top, 0px)) + 45px + 12px);
-    }
 }
 
 .regenerate-btn:hover:not(:disabled) {
