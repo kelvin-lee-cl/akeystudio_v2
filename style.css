@@ -563,7 +563,7 @@ body.results-visible-fullsong .input-section {
 
 .input-section.input-section--hero-inline .input-wrapper:has(textarea.mode-0243) {
     width: auto;
-    max-width: min(92%, 24ch);
+    max-width: min(96vw, 22rem);
 }
 
 .input-section.input-section--hero-inline .send-icon-btn {
@@ -579,7 +579,6 @@ body.results-visible-fullsong .input-section {
 
     @supports (field-sizing: content) {
 
-        .input-section.input-section--hero-inline .input-group textarea.mode-0243,
         .input-section.input-section--hero-inline .input-group textarea.home-phrase-mode {
             width: 100%;
             min-width: 0;
@@ -788,7 +787,7 @@ header h1 {
 
 /* Home: form hugs the field width on desktop; full width on small screens */
 .input-section form#lyricForm {
-    width: 100%;
+    width: 70%;
     max-width: 100%;
     margin: 0 auto;
     padding: 0 clamp(12px, 3vw, 28px);
@@ -837,7 +836,7 @@ body.results-visible-fullsong .input-section .input-wrapper {
 
 body.results-visible-0243 .input-section .input-wrapper:has(textarea.mode-0243) {
     width: auto;
-    max-width: min(92%, 24ch);
+    max-width: min(96vw, 22rem);
 }
 
 /*
@@ -851,17 +850,21 @@ body.results-visible-0243 .input-section .input-wrapper:has(textarea.mode-0243) 
 }
 
 .input-wrapper:has(textarea.home-phrase-mode) {
-    max-width: min(100%, 30ch);
+    max-width: min(70%, 30ch);
 }
 
-/* 0243: compact width (~placeholder length), not full row — mobile + desktop */
+/* 0243: compact width; wide enough for one-line placeholder + 2 digits — mobile + desktop */
 .input-wrapper:has(textarea.mode-0243) {
     width: auto;
-    max-width: min(92%, 24ch);
+    max-width: min(96vw, 22rem);
 }
 
 @media screen and (max-width: 768px) {
     .input-wrapper:has(textarea.home-phrase-mode) {
+        max-width: 70%;
+    }
+
+    .input-wrapper:has(textarea.mode-0243) {
         max-width: 70%;
     }
 }
@@ -889,31 +892,21 @@ body.results-visible-0243 .input-section .input-wrapper:has(textarea.mode-0243) 
 .input-group textarea.mode-0243 {
     font-family: 'Courier New', monospace;
     text-align: center;
+    /* Always exactly one visual row (desktop + mobile): no placeholder wrap, no multi-line growth */
+    white-space: nowrap;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    min-height: 3.35rem;
+    max-height: 3.35rem;
+    line-height: 1.45;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
-/* 0243: desktop — width comes from .input-wrapper (arrow stays inside border) */
-@media screen and (min-width: 769px) {
+@supports (field-sizing: fixed) {
     .input-group textarea.mode-0243 {
-        width: 100%;
-        max-width: 100%;
-        min-height: 3.35rem;
-        overflow-y: hidden;
-    }
-}
-
-@supports (field-sizing: content) {
-    @media screen and (min-width: 769px) {
-        .input-wrapper:has(textarea.mode-0243) {
-            min-width: 0;
-            max-width: min(92%, 24ch);
-        }
-
-        .input-group textarea.mode-0243 {
-            field-sizing: content;
-            width: 100%;
-            min-width: 0;
-            max-width: 100%;
-        }
+        field-sizing: fixed;
     }
 }
 
@@ -2499,6 +2492,14 @@ body.results-visible-fullsong .result-header h2 {
     margin: 8px 0 0;
 }
 
+/* 0243: digit mapping hints stay on one line (scroll horizontally if needed on narrow screens) */
+body.results-visible-0243 .pattern-header .pattern-mapping-hint {
+    white-space: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
+
 .phrases-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -2522,6 +2523,9 @@ body.results-visible-fullsong .result-header h2 {
 .phrases-list.phrases-list--0243 .phrase-word {
     margin-bottom: 0;
     font-size: 1.15em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 @media screen and (max-width: 768px) {
